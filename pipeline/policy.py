@@ -60,10 +60,10 @@ _OPT_OUT_RE = re.compile(
 _QUESTION_MARKERS = (
     "ఏమిటి", "ఏంటి", "ఏది", "ఎక్కడ", "ఎలా", "ఎందుకు", "ఉన్నాయా", "కావాలా",
     "what", "which", "where", "how", "why", "who", "do you", "is there",
-    "are there", "can you", "could you",
+    "are there", "can you", "could you", "doubt", "డౌట్", "ప్రశ్న", "ప్రాపర్టీస్", "ఫ్లాట్స్", "విల్లాస్", "లిస్టింగ్స్", "ఉన్నాయి",
 )
 _UNDECIDED_MARKERS = (
-    "ఇంకా నిర్ణయించుకోలేదు", "నిర్ణయం తీసుకోలేదు", "తెలియదు", "not decided",
+    "ఇంకా నిర్ణయించుకోలేదు", "నిర్ణయం తీసుకోలేదు", "నిర్ణయించలేదు", "decide కాలేదు", "తెలియదు", "not decided",
     "haven't decided", "have not decided", "not sure", "undecided",
 )
 _DEFER_MARKERS = (
@@ -97,7 +97,7 @@ class PolicySelector:
             session.update_stage("ended")
             return PolicyDecision(ResponseMode.PYTHON_DIRECT, _GOODBYE_OPT_OUT, next_stage="ended", intent="global_opt_out")
 
-        self._apply_extraction(session, extraction, user_text)
+        if any(marker in lower for marker in ("not interested", "ఆసక్తి లేదు", "ఇష్టం లేదు")):\n            session.update_stage("ended")\n            return PolicyDecision(ResponseMode.PYTHON_DIRECT, _GOODBYE_OPT_OUT, next_stage="ended", intent="customer_not_interested")\n\n        self._apply_extraction(session, extraction, user_text)
         next_field = self._next_missing_field(session.facts, session)
 
         # Save facts first, but answer a simultaneous customer question before continuing.
@@ -120,7 +120,7 @@ class PolicySelector:
                     next_stage=field, intent="repeat_question",
                 )
 
-        if self._has_extracted_fact(extraction):
+        if self._has_extracted_fact(extraction, pending):
             return self._ask_next_or_finish(
                 session, self._next_missing_field(session.facts, session), intent="fact_answered"
             )
