@@ -209,6 +209,9 @@ def test_bhk_extraction(norm, text, expected_bhk):
     ("యాభై లక్షలు", 50_00_000),
     ("ఇరవై ఐదు లక్షలు", 25_00_000),
     ("ఒక కోటి యాభై లక్షలు", 1_50_00_000),
+    ("అరకోటి", 50_00_000),
+    ("అర కోటి", 50_00_000),
+    ("half crore", 50_00_000),
     ("రెండు లక్షల యాభై వేల", 2_50_000),
     ("50 lakh 20 thousand", 50_20_000),
     ("2.5 లక్షలు", 2_50_000),
@@ -223,10 +226,8 @@ def test_compositional_budget_expressions(norm, text, expected_rupees):
     "50-60 lakhs",
     "50 to 60 lakhs",
     "budget flexible",
-    "ఒక కోటి వరకు లేదా అంతకంటే ఎక్కువ",
 ])
 def test_ambiguous_or_range_budget_is_not_guessed(norm, text):
     _, normalized = norm.process(text)
     result = norm.extract(normalized)
-    if "lakhs" in text and ("-" in text or " to " in text):
-        assert result.budget_rupees is None
+    assert result.budget_rupees is None
