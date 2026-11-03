@@ -124,7 +124,7 @@ class PolicySelector:
             return PolicyDecision(
                 ResponseMode.PYTHON_DIRECT,
                 "తప్పకుండా, మీకు ఏ విషయం గురించి సందేహం ఉందో చెప్పండి. నేను వివరిస్తాను.",
-                next_stage=self._stage_name(doubt_pending) or session.stage,
+                next_stage=doubt_pending or session.stage,
                 intent="customer_has_doubt",
             )
 
@@ -135,7 +135,7 @@ class PolicySelector:
             return PolicyDecision(
                 ResponseMode.LLM_GENERATE,
                 llm_prompt=self._build_llm_prompt(session, user_text),
-                next_stage=self._stage_name(next_field) or session.stage,
+                next_stage=next_field or session.stage,
                 intent="customer_question",
             )
 
@@ -145,7 +145,7 @@ class PolicySelector:
                 session.pending_field = field
                 return PolicyDecision(
                     ResponseMode.PYTHON_DIRECT, _QUESTIONS.get(field, _Q_CLARIFY.get(field)),
-                    next_stage=self._stage_name(field), intent="repeat_question",
+                    next_stage=field, intent="repeat_question",
                 )
 
         if self._has_extracted_fact(extraction, pending):
@@ -178,7 +178,7 @@ class PolicySelector:
             return PolicyDecision(
                 ResponseMode.PYTHON_DIRECT,
                 _Q_CLARIFY.get(pending, "క్షమించండి, మరోసారి చెప్పగలరా?"),
-                next_stage=self._stage_name(pending), intent="clarify_pending_field",
+                next_stage=pending, intent="clarify_pending_field",
             )
 
         return self._ask_next_or_finish(
@@ -199,10 +199,6 @@ class PolicySelector:
             session.deferred_fields = set()
         if not hasattr(session, "refused_fields"):
             session.refused_fields = set()
-
-    def _stage_name(self, field: Optional[str]) -> Optional[str]:
-        """Return the legacy conversation stage name while keeping canonical fact keys internally."""
-        return "budget" if field == "budget_rupees" else field
 
     def _apply_extraction(self, session, extraction, raw_text: str) -> None:
         for name in ("location", "budget_rupees", "property_type", "bedrooms", "timeline"):
@@ -239,7 +235,7 @@ class PolicySelector:
         session.next_missing_field = next_field
         return PolicyDecision(
             ResponseMode.PYTHON_DIRECT, _QUESTIONS[next_field],
-            next_stage=self._stage_name(next_field), intent=intent,
+            next_stage=next_field, intent=intent,
         )
 
     def _acknowledge_and_continue(self, session, next_field, intent) -> PolicyDecision:
@@ -257,7 +253,7 @@ class PolicySelector:
         session.next_missing_field = next_field
         return PolicyDecision(
             ResponseMode.PYTHON_DIRECT, acknowledgements[intent] + " " + _QUESTIONS[next_field],
-            next_stage=self._stage_name(next_field), intent=intent,
+            next_stage=next_field, intent=intent,
         )
 
     def _looks_like_question(self, text: str) -> bool:
