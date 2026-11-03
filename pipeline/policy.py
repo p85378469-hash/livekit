@@ -95,7 +95,17 @@ class PolicySelector:
         "location", "budget_rupees", "property_type", "bedrooms", "timeline", "consent"
     ]
 
-    def select(self, session: ConversationSession, extraction) -> PolicyDecision:
+    def select(
+        self,
+        session: ConversationSession,
+        extraction,
+        intent_override: Optional[str] = None,
+    ) -> PolicyDecision:
+        """Apply deterministic policy, optionally using a validated Jev intent classification.
+
+        intent_override is advisory only. Explicit opt-out checks remain deterministic,
+        and all state changes and response selection remain owned by this policy.
+        """
         self._ensure_policy_state(session)
         user_text = session.recent_turns[-1].normalized_transcript.strip() if session.recent_turns else ""
         lower = user_text.lower()
@@ -110,12 +120,18 @@ class PolicySelector:
             session.update_stage("ended")
             return PolicyDecision(ResponseMode.PYTHON_DIRECT, _GOODBYE_NOT_INTERESTED, next_stage="ended", intent="customer_not_interested")
 
+        if intent_override == "not_interested":
+            session.update_stage("ended")
+            return PolicyDecision(ResponseMode.PYTHON_DIRECT, _GOODBYE_NOT_INTERESTED, next_stage="ended", intent="customer_not_interested")
+
         self._apply_extraction(session, extraction, user_text)
         next_field = self._next_missing_field(session.facts, session)
 
         # If the caller signals confusion but has not stated the question, invite them
         # to explain while preserving the active qualification slot.
-        if any(marker in lower for marker in _DOUBT_MARKERS) and not self._looks_like_question(lower):
+        if intent_override == "doubt_without_question" or (
+            any(marker in lower for marker in _DOUBT_MARKERS) and not self._looks_like_question(lower)
+        ):
             # If the same utterance also supplied the pending fact, advance the slot;
             # otherwise keep asking for the caller's clarification.
             doubt_pending = next_field if self._has_extracted_fact(extraction, pending) else pending
@@ -129,7 +145,7 @@ class PolicySelector:
             )
 
         # Save facts first, but answer a simultaneous customer question before continuing.
-        if self._looks_like_question(lower):
+        if intent_override == "question" or self._looks_like_question(lower):
             session.pending_field = next_field
             session.next_missing_field = next_field
             return PolicyDecision(
@@ -139,7 +155,7 @@ class PolicySelector:
                 intent="customer_question",
             )
 
-        if any(marker in lower for marker in _REPEAT_MARKERS):
+        if intent_override == "repeat" or any(marker in lower for marker in _REPEAT_MARKERS):
             field = pending or next_field
             if field:
                 session.pending_field = field
@@ -151,6 +167,13 @@ class PolicySelector:
         if self._has_extracted_fact(extraction, pending):
             return self._ask_next_or_finish(
                 session, self._next_missing_field(session.facts, session), intent="fact_answered"
+            )
+
+        if pending and intent_override == "defer":
+            session.deferred_fields.add(pending)
+            session.pending_field = None
+            return self._acknowledge_and_continue(
+                session, self._next_missing_field(session.facts, session), "customer_deferred"
             )
 
         if pending and any(marker in lower for marker in _UNDECIDED_MARKERS):
@@ -167,7 +190,7 @@ class PolicySelector:
                 session, self._next_missing_field(session.facts, session), "customer_deferred"
             )
 
-        if pending and any(marker in lower for marker in _REFUSAL_MARKERS):
+        if pending and (intent_override == "refusal" or any(marker in lower for marker in _REFUSAL_MARKERS)):
             session.refused_fields.add(pending)
             session.pending_field = None
             return self._acknowledge_and_continue(
