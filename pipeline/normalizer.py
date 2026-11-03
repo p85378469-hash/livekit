@@ -246,14 +246,14 @@ class Normalizer:
         for phrase, months in telugu_months.items():
             if phrase in lower:
                 return f"{months}_months"
-        match = re.search(r"(?<!\\d)(\\d{1,2})\\s*(months?|నెలల్లో|నెలలు|నెలలో)", lower)
+        match = re.search(r"(?<!\d)(\d{1,2})\s*(months?|నెలల్లో|నెలలు|నెలలో)", lower)
         if match:
             months = int(match.group(1))
             if 1 <= months <= 36:
                 return f"{months}_months"
         english_words = {"one": 1, "two": 2, "three": 3, "six": 6, "twelve": 12}
         for word, months in english_words.items():
-            if re.search(rf"\\b{word}\\s+months?\\b", lower):
+            if re.search(rf"\b{word}\s+months?\b", lower):
                 return f"{months}_months"
         return None
 
