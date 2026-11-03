@@ -237,3 +237,15 @@ def test_bare_no_is_not_global_opt_out(norm):
     _, normalized = norm.process("వద్దు")
     result = norm.extract(normalized)
     assert result.opted_out is None
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("within 3 months", "3_months"),
+    ("in two months", "2_months"),
+    ("మూడు నెలల్లో కొనాలి", "3_months"),
+    ("వెంటనే కొనాలి", "immediate"),
+    ("ఇంకా తెలియదు", None),
+])
+def test_explicit_purchase_timeline_extraction(norm, text, expected):
+    _, normalized = norm.process(text)
+    assert norm.extract(normalized).timeline == expected
