@@ -244,5 +244,5 @@ class PolicySelector:
             "qualification complete. After answering, if appropriate, gently return to the pending question. "
             "Ask at most one question.\n\n"
             f"Known customer facts:\n{known or '- none'}\n"
-            f"Pending qualification field: {pending}\nLatest caller utterance: {user_text}"
+            f"Pending qualification field: {pending}"
         )
