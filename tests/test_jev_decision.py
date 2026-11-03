@@ -62,6 +62,16 @@ async def test_jev_low_confidence_uses_fallback(monkeypatch):
     assert await client.classify({"latest_caller_utterance": "ఏమిటి?"}) is None
 
 
+
+@pytest.mark.asyncio
+async def test_jev_missing_confidence_uses_fallback(monkeypatch):
+    monkeypatch.setenv("JEV_DECISION_ENABLED", "true")
+    client = JevDecisionClient(api_key="test-key")
+    malformed = _choice_response("question")
+    del malformed["answers"]["caller_intent"]["confidence"]
+    monkeypatch.setattr(client, "_post_decision", lambda payload: malformed)
+    assert await client.classify({"latest_caller_utterance": "ఏమిటి?"}) is None
+
 @pytest.mark.asyncio
 async def test_jev_malformed_response_uses_fallback(monkeypatch):
     monkeypatch.setenv("JEV_DECISION_ENABLED", "true")
