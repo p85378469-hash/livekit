@@ -450,3 +450,51 @@ async def test_deterministic_duplicate_fallback_without_message_id(agent, sessio
     assert mock_agent_session.say.call_count == 1
 
 
+
+
+# ── Phase 1 policy regression: clarify the active field, not caller history ──
+
+def test_unrecognized_budget_answer_uses_clarification(session):
+    normalizer = Normalizer()
+    policy = PolicySelector()
+    session.update_stage("budget", "budget_rupees")
+    raw = "ఆహ్, ఏదో చెప్పాను"
+    _, normalized = normalizer.process(raw)
+    session.commit_turn(raw, normalized, 0.0, 1.0)
+
+    decision = policy.select(session, normalizer.extract(normalized))
+
+    assert decision.mode == ResponseMode.PYTHON_DIRECT
+    assert "బడ్జెట్ సరిగ్గా అర్థం కాలేదు" in decision.direct_text
+    assert decision.next_stage == "budget"
+
+
+def test_unrecognized_location_answer_uses_clarification(session):
+    normalizer = Normalizer()
+    policy = PolicySelector()
+    session.update_stage("location", "location")
+    raw = "అక్కడే"
+    _, normalized = normalizer.process(raw)
+    session.commit_turn(raw, normalized, 0.0, 1.0)
+
+    decision = policy.select(session, normalizer.extract(normalized))
+
+    assert decision.mode == ResponseMode.PYTHON_DIRECT
+    assert "ప్రాంతం సరిగ్గా అర్థం కాలేదు" in decision.direct_text
+    assert decision.next_stage == "location"
+
+
+def test_valid_budget_answer_advances_to_next_missing_field(session):
+    normalizer = Normalizer()
+    policy = PolicySelector()
+    session.update_stage("budget", "budget_rupees")
+    raw = "అదే చెప్పా కదా, 50 లాక్స్ అని"
+    _, normalized = normalizer.process(raw)
+    session.commit_turn(raw, normalized, 0.0, 1.0)
+
+    decision = policy.select(session, normalizer.extract(normalized))
+
+    assert session.facts.budget_rupees == 50_00_000
+    assert decision.next_stage == "property_type"
+    assert decision.direct_text is not None
+    assert "బడ్జెట్ సరిగ్గా అర్థం కాలేదు" not in decision.direct_text
