@@ -487,6 +487,8 @@ def test_unrecognized_location_answer_uses_clarification(session):
 def test_valid_budget_answer_advances_to_next_missing_field(session):
     normalizer = Normalizer()
     policy = PolicySelector()
+    # Budget is only the active question after the caller's location is known.
+    session.update_fact("location", "Vijayawada")
     session.update_stage("budget", "budget_rupees")
     raw = "అదే చెప్పా కదా, 50 లాక్స్ అని"
     _, normalized = normalizer.process(raw)
