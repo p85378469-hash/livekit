@@ -137,8 +137,8 @@ _BHK_PATTERN = re.compile(r"(\d)\s*bhk", re.IGNORECASE)
 _YES_TOKENS = {"అవును", "సరే", "yes", "yeah", "ok", "okay", "sure", "ha", "haa"}
 _NO_TOKENS  = {"వద్దు", "లేదు", "no", "nope", "not interested", "cancel"}
 _OPT_OUT_TOKENS = {
-    "వద్దు", "చాలు", "stop", "not interested", "remove",
-    "unsubscribe", "do not call", "don't call",
+    "stop", "not interested", "remove",
+    "unsubscribe", "do not call", "don't call", "కాల్ చేయకండి", "మళ్ళీ కాల్ చేయకండి", "సంప్రదించకండి",
 }
 
 
