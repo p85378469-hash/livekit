@@ -95,12 +95,13 @@ def test_jev_question_routes_to_generative_llm_even_without_keyword_marker():
     assert session.pending_field == "budget_rupees"
 
 
-def test_jev_doubt_without_question_asks_caller_to_explain():
+def test_jev_doubt_without_question_routes_to_llm_and_preserves_pending_slot():
     session = _session_waiting_for_budget()
     decision = _run_policy_turn(session, "నాకు ఒక సందేహం ఉంది", "doubt_without_question")
-    assert decision.mode is ResponseMode.PYTHON_DIRECT
-    assert decision.intent == "customer_has_doubt"
+    assert decision.mode is ResponseMode.LLM_GENERATE
+    assert decision.intent == "customer_doubt"
     assert session.pending_field == "budget_rupees"
+    assert "invite them to explain" in decision.llm_prompt
 
 
 def test_jev_defer_skips_only_current_pending_field():
