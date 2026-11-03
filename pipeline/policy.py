@@ -116,10 +116,15 @@ class PolicySelector:
         # If the caller signals confusion but has not stated the question, invite them
         # to explain while preserving the active qualification slot.
         if any(marker in lower for marker in _DOUBT_MARKERS) and not self._looks_like_question(lower):
+            # If the same utterance also supplied the pending fact, advance the slot;
+            # otherwise keep asking for the caller's clarification.
+            doubt_pending = next_field if self._has_extracted_fact(extraction, pending) else pending
+            session.pending_field = doubt_pending
+            session.next_missing_field = doubt_pending
             return PolicyDecision(
                 ResponseMode.PYTHON_DIRECT,
                 "తప్పకుండా, మీకు ఏ విషయం గురించి సందేహం ఉందో చెప్పండి. నేను వివరిస్తాను.",
-                next_stage=pending or next_field or session.stage,
+                next_stage=doubt_pending or session.stage,
                 intent="customer_has_doubt",
             )
 
