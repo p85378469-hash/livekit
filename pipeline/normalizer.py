@@ -246,7 +246,7 @@ class Normalizer:
         for phrase, months in telugu_months.items():
             if phrase in lower:
                 return f"{months}_months"
-        match = re.search(r"\\b(\\d{1,2})\\s*(months?|నెలల్లో|నెలలు|నెలలో)\\b?", lower)
+        match = re.search(r"(?<!\\d)(\\d{1,2})\\s*(months?|నెలల్లో|నెలలు|నెలలో)", lower)
         if match:
             months = int(match.group(1))
             if 1 <= months <= 36:
