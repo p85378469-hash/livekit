@@ -66,7 +66,7 @@ _QUESTION_MARKERS = (
 )
 _UNDECIDED_MARKERS = (
     "ఇంకా నిర్ణయించుకోలేదు", "నిర్ణయం తీసుకోలేదు", "నిర్ణయించలేదు", "decide కాలేదు", "తెలియదు", "not decided",
-    "haven't decided", "have not decided", "not sure", "undecided",
+    "haven't decided", "have not decided", "not sure", "undecided", "budget flexible", "flexible", "ఏదైనా అయినా పర్వాలేదు",
 )
 _DEFER_MARKERS = (
     "తర్వాత చెప్తాను", "తర్వాత చెప్తా", "తర్వాత మాట్లాడదాం", "తర్వాత",
