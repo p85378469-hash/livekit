@@ -61,8 +61,15 @@ _OPT_OUT_RE = re.compile(
 _QUESTION_MARKERS = (
     "ఏమిటి", "ఏంటి", "ఏది", "ఎక్కడ", "ఎలా", "ఎందుకు", "ఉన్నాయా", "కావాలా",
     "what", "which", "where", "how", "why", "who", "do you", "is there",
-    "are there", "can you", "could you", "doubt", "డౌట్", "ప్రశ్న", "ఎలాంటి", "ఏ రకమైన",
+    "are there", "can you", "could you", "ప్రశ్న", "ఎలాంటి", "ఏ రకమైన",
     "ఎంత", "ఎప్పుడు", "ఏమైనా", "మీ దగ్గర", "details", "వివరాలు",
+)
+_DOUBT_MARKERS = (
+    "నాకు ఒక డౌట్ ఉంది", "నాకు డౌట్ ఉంది", "ఒక డౌట్ ఉంది", "డౌట్ ఉంది",
+    "నాకు ఒక సందేహం ఉంది", "నాకు సందేహం ఉంది", "ఒక సందేహం ఉంది", "సందేహం ఉంది",
+    "నాకు అర్థం కాలేదు", "అర్థం కాలేదు", "వివరంగా చెప్పండి", "మరోసారి వివరించండి",
+    "i have a doubt", "i have a question", "i don't understand", "i do not understand",
+    "can you clarify", "please explain", "explain that",
 )
 _UNDECIDED_MARKERS = (
     "ఇంకా నిర్ణయించుకోలేదు", "నిర్ణయం తీసుకోలేదు", "నిర్ణయించలేదు", "decide కాలేదు", "తెలియదు", "not decided",
@@ -105,6 +112,16 @@ class PolicySelector:
 
         self._apply_extraction(session, extraction, user_text)
         next_field = self._next_missing_field(session.facts, session)
+
+        # If the caller signals confusion but has not stated the question, invite them
+        # to explain while preserving the active qualification slot.
+        if any(marker in lower for marker in _DOUBT_MARKERS) and not self._looks_like_question(lower):
+            return PolicyDecision(
+                ResponseMode.PYTHON_DIRECT,
+                "తప్పకుండా, మీకు ఏ విషయం గురించి సందేహం ఉందో చెప్పండి. నేను వివరిస్తాను.",
+                next_stage=pending or next_field or session.stage,
+                intent="customer_has_doubt",
+            )
 
         # Save facts first, but answer a simultaneous customer question before continuing.
         if self._looks_like_question(lower):
@@ -164,8 +181,15 @@ class PolicySelector:
         )
 
     def _ensure_policy_state(self, session: ConversationSession) -> None:
-        if not hasattr(session, "pending_field"):
-            session.pending_field = session.stage if session.stage in self.FACT_COLLECTION_ORDER else None
+        # Backward compatibility for older callers that set stage/next_missing_field.
+        if getattr(session, "pending_field", None) is None:
+            stage_aliases = {
+                "location": "location", "budget": "budget_rupees",
+                "property": "property_type", "property_type": "property_type",
+                "bedrooms": "bedrooms", "timeline": "timeline", "consent": "consent",
+            }
+            candidate = getattr(session, "next_missing_field", None) or stage_aliases.get(session.stage)
+            session.pending_field = candidate if candidate in self.FACT_COLLECTION_ORDER else None
         if not hasattr(session, "deferred_fields"):
             session.deferred_fields = set()
         if not hasattr(session, "refused_fields"):
