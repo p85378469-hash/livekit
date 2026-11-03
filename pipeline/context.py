@@ -15,7 +15,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 import structlog
 
 from core.session import ConversationSession
@@ -103,7 +103,8 @@ class ContextBuilder:
         facts = ctx["facts"]
 
         collected = {k: v for k, v in facts.items() if v is not None}
-        missing = [k for k, v in facts.items() if v is None]
+        skipped = set(getattr(session, "deferred_fields", set())) | set(getattr(session, "refused_fields", set()))
+        missing = [k for k, v in facts.items() if v is None and k not in skipped]
 
         facts_section = ""
         if collected:
