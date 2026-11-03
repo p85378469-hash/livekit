@@ -231,9 +231,13 @@ class PolicySelector:
             session.update_fact("consent", extraction.consent, raw_text=raw_text)
 
     def _has_extracted_fact(self, extraction, pending: Optional[str] = None) -> bool:
-        names = ("location", "budget_rupees", "property_type", "bedrooms", "timeline")
-        if pending == "consent":
-            names += ("consent",)
+        # When a field is pending, only that field counts as answering the question.
+        # An unrelated extracted value must not silently advance qualification.
+        aliases = {"budget": "budget_rupees", "property": "property_type"}
+        field_name = aliases.get(pending, pending)
+        if field_name is not None:
+            return getattr(extraction, field_name, None) is not None
+        names = ("location", "budget_rupees", "property_type", "bedrooms", "timeline", "consent")
         return any(getattr(extraction, name, None) is not None for name in names)
 
     def _next_missing_field(self, facts: AgentFacts, session) -> Optional[str]:
