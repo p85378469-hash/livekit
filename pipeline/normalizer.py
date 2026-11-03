@@ -87,6 +87,8 @@ _TELUGU_MULTIPLIERS: dict[str, float] = {
     "వేలు": 1_000,
     "లక్ష": 1_00_000,
     "లక్షలు": 1_00_000,
+    "లాక్స్": 1_00_000,
+    "లాక్": 1_00_000,
     "కోటి": 1_00_00_000,
     "కోట్లు": 1_00_00_000,
     "lakh": 1_00_000,
@@ -102,6 +104,12 @@ _TELUGU_MULTIPLIERS: dict[str, float] = {
 _AMOUNT_PATTERN = re.compile(
     r"(\d+(?:\.\d+)?)\s*(?:lakh|lakhs|crore|crores|thousand|lacs?)",
     re.IGNORECASE,
+)
+
+# Arabic numerals followed by Telugu-script currency units, including common
+# STT transliterations such as "లాక్స్".
+_DIGIT_TELUGU_AMOUNT_PATTERN = re.compile(
+    r"(\\d+(?:\\.\\d+)?)\\s*(లక్షలు|లక్ష|లాక్స్|లాక్|కోట్లు|కోటి|వేలు|వేల)"
 )
 
 
@@ -197,7 +205,20 @@ class Normalizer:
         Finds budget numbers in both English ('50 lakhs', '25 lacs') and Telugu ('ఒక కోటి').
         Returns the exact value in Indian Rupees (₹).
         """
-        # Case A: English mixed style (e.g. "50 lakhs", "1.5 crore", "25 lacs")
+        # Case A: Arabic numerals followed by Telugu units (e.g. "50 లాక్స్").
+        telugu_digit_match = _DIGIT_TELUGU_AMOUNT_PATTERN.search(text)
+        if telugu_digit_match:
+            amount = float(telugu_digit_match.group(1))
+            unit = telugu_digit_match.group(2)
+            rupees = amount * _TELUGU_MULTIPLIERS[unit]
+            log.debug(
+                "normalizer.budget_extracted",
+                raw_match=telugu_digit_match.group(0),
+                rupees=rupees,
+            )
+            return rupees
+
+        # Case B: English mixed style (e.g. "50 lakhs", "1.5 crore", "25 lacs")
         match = _AMOUNT_PATTERN.search(text)
         if match:
             amount_str = match.group(1)
@@ -213,7 +234,7 @@ class Normalizer:
                     )
                     return rupees
 
-        # Case B: Telugu word pairs (e.g. "ఒక కోటి" = 1 * 1,00,00,000 = ₹1 Crore)
+        # Case C: Telugu word pairs (e.g. "ఒక కోటి" = 1 * 1,00,00,000 = ₹1 Crore)
         for tword, tval in _TELUGU_ONES.items():
             for mword, mval in _TELUGU_MULTIPLIERS.items():
                 pattern = f"{tword}\\s+{mword}"
