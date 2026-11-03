@@ -43,6 +43,7 @@ _NUMBER_WORDS = {
 }
 _HUNDRED_WORDS = {"hundred", "వంద", "వందలు"}
 _CONNECTORS = {"and", "మరియు"}
+_FRACTION_WORDS = {"half": Decimal("0.5"), "అర": Decimal("0.5")}
 _TOKEN_RE = re.compile(r"\d+(?:,\d{2,3})*(?:\.\d+)?|[A-Za-z]+|[\u0C00-\u0C7F]+", re.UNICODE)
 _RANGE_RE = re.compile(r"\d\s*(?:-|–|to|నుంచి)\s*\d", re.IGNORECASE)
 
@@ -91,6 +92,15 @@ def parse_indian_amount(text: str) -> Optional[int]:
             # A unit without a preceding number is not enough to infer an amount.
             i += 1
             continue
+
+        # Common half-unit expressions, e.g. "half crore" / "అర కోటి".
+        if lower in _FRACTION_WORDS:
+            j = i + 1
+            if j < len(tokens) and tokens[j].lower() in _UNIT_VALUES:
+                total += _FRACTION_WORDS[lower] * _UNIT_VALUES[tokens[j].lower()]
+                found_unit = True
+                i = j + 1
+                continue
 
         # Numeric amount immediately followed by a recognized unit.
         numeric = token.replace(",", "")
