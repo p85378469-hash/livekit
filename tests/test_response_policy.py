@@ -99,3 +99,30 @@ def test_repeat_request_repeats_pending_question():
     assert decision.mode is ResponseMode.PYTHON_DIRECT
     assert decision.intent == "repeat_question"
     assert decision.next_stage == "budget_rupees"
+
+
+
+def test_doubt_without_question_invites_customer_to_explain_and_preserves_pending_slot():
+    session = session_waiting_for_budget()
+    decision = run_turn(session, "నాకు ఒక డౌట్ ఉంది")
+    assert decision.mode is ResponseMode.PYTHON_DIRECT
+    assert decision.intent == "customer_has_doubt"
+    assert "సందేహం" in decision.direct_text
+    assert session.pending_field == "budget_rupees"
+
+
+def test_english_doubt_without_question_invites_customer_to_explain():
+    session = session_waiting_for_budget()
+    decision = run_turn(session, "I have a doubt")
+    assert decision.mode is ResponseMode.PYTHON_DIRECT
+    assert decision.intent == "customer_has_doubt"
+    assert session.pending_field == "budget_rupees"
+
+
+def test_availability_question_does_not_save_property_type_as_preference():
+    session = session_waiting_for_budget()
+    decision = run_turn(session, "50 lakhs, do you have flats?")
+    assert session.facts.budget_rupees == 5_000_000
+    assert session.facts.property_type is None
+    assert decision.mode is ResponseMode.LLM_GENERATE
+    assert session.pending_field == "property_type"
