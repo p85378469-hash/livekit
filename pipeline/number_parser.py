@@ -18,6 +18,10 @@ _UNIT_VALUES = {
     "lacs": 100_000, "లక్ష": 100_000,
     "లక్షలు": 100_000, "లాక్స్": 100_000, "లాక్": 100_000,
     "లక్షల": 100_000,
+    # Romanised transliterations spoken by Telugu callers
+    "lakshalu": 100_000, "laksham": 100_000, "lakshas": 100_000,
+    "laaksu": 100_000, "laakhs": 100_000,
+    "kotlu": 10_000_000, "kothi": 10_000_000, "koti": 10_000_000,
     "crore": 10_000_000, "crores": 10_000_000,
     "కోటి": 10_000_000, "కోట్లు": 10_000_000,
 }
@@ -47,6 +51,34 @@ _FRACTION_WORDS = {"half": Decimal("0.5"), "అర": Decimal("0.5")}
 _COMPOUND_AMOUNT_VALUES = {"అరకోటి": 5_000_000, "అరలక్ష": 50_000}
 _TOKEN_RE = re.compile(r"\d+(?:,\d{2,3})*(?:\.\d+)?|[A-Za-z]+|[\u0C00-\u0C7F]+", re.UNICODE)
 _RANGE_RE = re.compile(r"\d\s*(?:-|–|to|నుంచి)\s*\d", re.IGNORECASE)
+
+
+# ---------------------------------------------------------------------------
+# Fallback helpers: bare numbers & standalone unit words
+# ---------------------------------------------------------------------------
+# Minimum rupee value for a bare number to count as a budget.
+# Prevents '2' or '3' (BHK count) being misread as a budget.
+_BARE_NUMBER_THRESHOLD = 10_000
+
+# Matches Indian-format bare numbers: 10000, 10,000, 1,00,000, 50,00,000.
+# Captures the full comma-separated string; caller strips commas to get int.
+_INDIAN_NUMBER_RE = re.compile(
+    r"(?<!\d)(\d{1,3}(?:,\d{2,3})*)(?!\d)",
+)
+
+# Standalone Telugu/English unit words with NO preceding digit on the same token.
+# When a caller says only "కోట్లు, కోట్లు" we cannot infer an amount, so we
+# return None — but at least we don't crash.
+_STANDALONE_UNIT_RE = re.compile(
+    "(?:^|\\s)("
+    "కోట్లు|కోటి"
+    "|లక్షలు|లక్ష"
+    "|లాక్స్|లాక్"
+    "|లక్షల"
+    "|crores?|lakhs?|lacs?"
+    ")(?:\\s|$)",
+    re.IGNORECASE | re.UNICODE,
+)
 
 
 def _parse_number_words(tokens: list[str]) -> Optional[int]:
@@ -147,5 +179,21 @@ def parse_indian_amount(text: str) -> Optional[int]:
         i += 1
 
     if not found_unit:
+        # ── Bare-number fallback ────────────────────────────────────────────
+        # The user said something like "10,000" or "1,00,000" with no unit.
+        # We collect ALL Indian-format numbers in the text, pick the largest
+        # one that meets our threshold, and return it as raw rupees.
+        # This handles callers who omit "లక్షలు" / "crores" but mean it.
+        candidates = []
+        for m in _INDIAN_NUMBER_RE.finditer(text):
+            raw = m.group(1).replace(",", "")
+            try:
+                val = int(raw)
+                if val >= _BARE_NUMBER_THRESHOLD:
+                    candidates.append(val)
+            except ValueError:
+                pass
+        if candidates:
+            return max(candidates)   # trust the largest number mentioned
         return None
     return int(total)

@@ -442,7 +442,8 @@ async def entrypoint(ctx: JobContext) -> None:
         m = getattr(ev, "metrics", ev)
         from livekit.agents.metrics import LLMMetrics, TTSMetrics
         if isinstance(m, LLMMetrics):
-            first_token_ts_ms = (m.timestamp + m.ttft) * 1000 if m.ttft > 0 else m.timestamp * 1000
+            start_ts = m.timestamp - m.duration if m.duration else m.timestamp
+            first_token_ts_ms = (start_ts + m.ttft) * 1000 if m.ttft > 0 else start_ts * 1000
             latency.record(Stage.LLM_FIRST_TOKEN, first_token_ts_ms)
             log.info(
                 "latency.llm_metrics",
@@ -451,7 +452,8 @@ async def entrypoint(ctx: JobContext) -> None:
                 total_tokens=m.total_tokens,
             )
         elif isinstance(m, TTSMetrics):
-            first_audio_ts_ms = (m.timestamp + m.ttfb) * 1000 if m.ttfb > 0 else m.timestamp * 1000
+            start_ts = m.timestamp - m.duration if m.duration else m.timestamp
+            first_audio_ts_ms = (start_ts + m.ttfb) * 1000 if m.ttfb > 0 else start_ts * 1000
             latency.record(Stage.TTS_FIRST_AUDIO, first_audio_ts_ms)
             log.info(
                 "latency.tts_metrics",

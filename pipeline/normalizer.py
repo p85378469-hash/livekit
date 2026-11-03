@@ -134,6 +134,27 @@ for canonical, aliases in _PROPERTY_TYPES.items():
 # Regex pattern for bedroom count: e.g. "2bhk", "3 BHK", "4 bhk"
 _BHK_PATTERN = re.compile(r"(\d)\s*bhk", re.IGNORECASE)
 
+# Telugu / romanised bedroom words
+_TELUGU_BEDROOM_WORDS = {
+    # Telugu script
+    "\u0c0f\u0c15\u0c02": 1,   # ఒకటి / ఒకం
+    "\u0c12\u0c15\u0c1f\u0c3f": 1,  # ఒకటి
+    "\u0c30\u0c46\u0c02\u0c21\u0c41": 2,  # రెండు
+    "\u0c2e\u0c42\u0c21\u0c41": 3,   # మూడు
+    "\u0c28\u0c3e\u0c32\u0c41\u0c17\u0c41": 4,  # నాలుగు
+    # Romanised
+    "rendu": 2, "rendu bhk": 2,
+    "moodu": 3, "naluugu": 4, "naalugu": 4,
+    "one bhk": 1, "two bhk": 2, "three bhk": 3, "four bhk": 4,
+    "1 bhk": 1, "2 bhk": 2, "3 bhk": 3, "4 bhk": 4,
+}
+
+# Telugu script words for bedroom room itself
+_BEDROOM_NOUN_RE = re.compile(
+    r"(\d)\s*(?:\u0c2c\u0c46\u0c21\u0c4d\u200c\u0c30\u0c42\u0c2e\u0c4d|\u0c2c\u0c46\u0c21\u0c4d\u200c\u0c30\u0c42\u0c2e\u0c4d\u0c38\u0c4d|\u0c2c\u0c46\u0c21\u0c4d\u200c\u0c30\u0c42\u0c2e\u0c4d\u200c\u0c32\u0c41|bedroom|bedrooms|room|rooms)",
+    re.IGNORECASE
+)
+
 # Words indicating customer agreement or disagreement:
 _YES_TOKENS = {"అవును", "సరే", "yes", "yeah", "ok", "okay", "sure", "ha", "haa"}
 _NO_TOKENS  = {"వద్దు", "లేదు", "no", "nope", "not interested", "cancel"}
@@ -237,10 +258,32 @@ class Normalizer:
         return None
 
     def _extract_bedrooms(self, text: str) -> Optional[int]:
-        """Checks for '2bhk', '3 BHK', '4bhk' and returns the number 2, 3, or 4."""
+        """
+        Extract bedroom count from text. Handles:
+        - English BHK: "2bhk", "3 BHK"
+        - Telugu bedroom nouns: "2 బెడ్‌రూమ్‌లు", "2 బెడ్‌రూమ్స్"
+        - Telugu number words: "రెండు" (2), "మూడు" (3) when asking about bedrooms
+        - Romanised: "rendu", "two bhk"
+        """
+        lower = text.lower()
+
+        # 1. English BHK pattern: "2bhk", "3 BHK"
         match = _BHK_PATTERN.search(text)
         if match:
             return int(match.group(1))
+
+        # 2. Digit + Telugu/English bedroom noun: "2 బెడ్‌రూమ్‌లు", "2 bedrooms"
+        match = _BEDROOM_NOUN_RE.search(text)
+        if match:
+            return int(match.group(1))
+
+        # 3. Telugu number words + optional bedroom context
+        #    Accept word-only answers like "రెండు" or "రెండు, రెండు" ONLY when
+        #    the text contains no other extractable info (short answer to bedroom Q)
+        for word, count in _TELUGU_BEDROOM_WORDS.items():
+            if word in lower:
+                return count
+
         return None
 
     def _extract_timeline(self, text: str) -> Optional[str]:
