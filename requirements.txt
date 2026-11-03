@@ -1,0 +1,29 @@
+# ============================================================
+# Telugu Voice Agent — Phase 1 Pinned Dependencies
+# MANDATORY: Do NOT upgrade any package without re-verifying
+# all event names, callback signatures, and streaming APIs.
+# ============================================================
+
+# LiveKit Agents framework (Python SDK)
+livekit-agents==0.12.16
+livekit==0.17.5
+livekit-plugins-soniox==0.12.5
+livekit-plugins-cartesia==0.12.5
+livekit-plugins-openai==0.12.5    # used for Groq via openai-compatible endpoint
+
+# Soniox STT (also pulled transitively via livekit-plugins-soniox)
+soniox==2.1.0
+
+# Groq LLM (streaming, openai-compatible)
+groq==0.11.0
+
+# Cartesia TTS (streaming)
+cartesia==1.4.1
+
+# Utility
+python-dotenv==1.0.1
+structlog==24.4.0
+
+# Testing
+pytest==8.3.2
+pytest-asyncio==0.23.8
