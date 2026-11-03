@@ -109,7 +109,7 @@ _AMOUNT_PATTERN = re.compile(
 # Arabic numerals followed by Telugu-script currency units, including common
 # STT transliterations such as "లాక్స్".
 _DIGIT_TELUGU_AMOUNT_PATTERN = re.compile(
-    r"(\\d+(?:\\.\\d+)?)\\s*(లక్షలు|లక్ష|లాక్స్|లాక్|కోట్లు|కోటి|వేలు|వేల)"
+    r"(\d+(?:\.\d+)?)\s*(లక్షలు|లక్ష|లాక్స్|లాక్|కోట్లు|కోటి|వేలు|వేల)"
 )
 
 
