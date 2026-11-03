@@ -43,6 +43,7 @@ class ExtractionResult:
     location: Optional[str] = None            # Canonical city name (e.g. "Vijayawada")
     property_type: Optional[str] = None       # "flat", "villa", "plot", etc.
     bedrooms: Optional[int] = None            # 2, 3, 4 bedrooms
+    timeline: Optional[str] = None             # Canonical purchase timeline, e.g. "3_months"
     opted_out: Optional[bool] = None          # True if caller said "don't call" or "not interested"
     consent: Optional[bool] = None            # True if caller agreed to WhatsApp / contact
     needs_clarification: list[str] = field(default_factory=list)  # Any vague fields
@@ -137,8 +138,8 @@ _BHK_PATTERN = re.compile(r"(\d)\s*bhk", re.IGNORECASE)
 _YES_TOKENS = {"అవును", "సరే", "yes", "yeah", "ok", "okay", "sure", "ha", "haa"}
 _NO_TOKENS  = {"వద్దు", "లేదు", "no", "nope", "not interested", "cancel"}
 _OPT_OUT_TOKENS = {
-    "వద్దు", "చాలు", "stop", "not interested", "remove",
-    "unsubscribe", "do not call", "don't call",
+    "stop", "not interested", "remove",
+    "unsubscribe", "do not call", "don't call", "కాల్ చేయకండి", "మళ్ళీ కాల్ చేయకండి", "సంప్రదించకండి",
 }
 
 
@@ -179,6 +180,7 @@ class Normalizer:
         result.location      = self._extract_location(normalized_text)
         result.property_type = self._extract_property_type(normalized_text)
         result.bedrooms      = self._extract_bedrooms(normalized_text)
+        result.timeline      = self._extract_timeline(normalized_text)
         result.opted_out     = self._detect_opt_out(normalized_text)
         result.consent       = self._detect_consent(normalized_text)
 
@@ -217,8 +219,18 @@ class Normalizer:
         return None
 
     def _extract_property_type(self, text: str) -> Optional[str]:
-        """Checks for property words like 'flat', 'apartment', 'villa', or 'plot'."""
+        """Extract a property preference, not a type mentioned only in an availability question."""
         lower = text.lower()
+        availability_question = any(marker in lower for marker in (
+            "do you have", "are there", "available", "మీ దగ్గర", "ఉన్నాయా",
+            "ఎలాంటి ప్రాపర్టీస్", "ఏ ప్రాపర్టీస్", "ప్రాపర్టీలు ఉన్నాయి",
+        ))
+        explicit_preference = any(marker in lower for marker in (
+            "i want", "i need", "looking for", "want a", "need a", "కావాలి",
+            "వెతుకుతున్నాను", "తీసుకోవాలి", "నాకు",
+        ))
+        if availability_question and not explicit_preference:
+            return None
         for alias, canonical in _PROP_ALIAS_MAP.items():
             if alias in lower:
                 return canonical
@@ -231,8 +243,32 @@ class Normalizer:
             return int(match.group(1))
         return None
 
+    def _extract_timeline(self, text: str) -> Optional[str]:
+        """Extract only explicit purchase-time expressions; do not infer vague intent."""
+        lower = text.lower()
+        if any(token in lower for token in ("వెంటనే", "ఇప్పుడే", "immediately", "right away", "as soon as possible")):
+            return "immediate"
+        telugu_months = {
+            "ఒక నెలలో": 1, "నెలలోపు": 1, "వచ్చే నెల": 1, "తర్వాత నెలలో": 1, "రెండు నెలల్లో": 2,
+            "మూడు నెలల్లో": 3, "ఆరు నెలల్లో": 6, "ఆరు నెలలలో": 6,
+            "ఒక సంవత్సరంలో": 12, "సంవత్సరం లోపు": 12,
+        }
+        for phrase, months in telugu_months.items():
+            if phrase in lower:
+                return f"{months}_months"
+        match = re.search(r"(?<!\d)(\d{1,2})\s*(months?|నెలల్లో|నెలలు|నెలలో)", lower)
+        if match:
+            months = int(match.group(1))
+            if 1 <= months <= 36:
+                return f"{months}_months"
+        english_words = {"one": 1, "two": 2, "three": 3, "six": 6, "twelve": 12}
+        for word, months in english_words.items():
+            if re.search(rf"\b{word}\s+months?\b", lower):
+                return f"{months}_months"
+        return None
+
     def _detect_opt_out(self, text: str) -> Optional[bool]:
-        """Detects if caller said 'not interested', 'stop calling', or 'వద్దు'."""
+        """Detects explicit contact-stop or disinterest phrases; bare refusal is not opt-out."""
         lower = text.lower()
         for token in _OPT_OUT_TOKENS:
             if token in lower:

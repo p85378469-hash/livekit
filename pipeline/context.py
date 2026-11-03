@@ -15,7 +15,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 import structlog
 
 from core.session import ConversationSession
@@ -43,7 +43,11 @@ Rules:
 - Never guess or invent information the caller did not provide.
 - If the caller's answer is unclear, ask for clarification politely.
 - If the caller wants to end the call or says they're not interested, say goodbye gracefully.
-- Do not give property listings, prices, or recommendations — you are only qualifying the lead.
+- You may answer general questions about the qualification process.
+- No verified property inventory is connected in this Phase 1 agent. Never invent listings, prices, availability, locations, or recommendations. If asked for specific properties or live availability, say you cannot verify them and offer human-agent confirmation.
+- Answer the caller's question before returning to qualification. Do not repeatedly ask the pending question while a customer question remains unanswered.
+- Never claim a callback, appointment, or booking is arranged unless the application confirms it.
+- Never change structured customer facts or qualification status yourself; Python owns session state.
 - Keep responses short — no more than 2 sentences.
 """
 
@@ -99,7 +103,8 @@ class ContextBuilder:
         facts = ctx["facts"]
 
         collected = {k: v for k, v in facts.items() if v is not None}
-        missing = [k for k, v in facts.items() if v is None]
+        skipped = set(getattr(session, "deferred_fields", set())) | set(getattr(session, "refused_fields", set()))
+        missing = [k for k, v in facts.items() if v is None and k not in skipped]
 
         facts_section = ""
         if collected:
@@ -113,6 +118,14 @@ class ContextBuilder:
             )
 
         stage_section = f"\n\nCurrent stage: {ctx['stage']}"
+        pending = getattr(session, "pending_field", None)
+        stage_section += f"\nPending qualification field: {pending or 'none'}"
+        deferred = sorted(getattr(session, "deferred_fields", set()))
+        refused = sorted(getattr(session, "refused_fields", set()))
+        if deferred:
+            stage_section += f"\nDeferred fields (do not immediately ask again): {deferred}"
+        if refused:
+            stage_section += f"\nFields caller declined (do not pressure): {refused}"
         if ctx["next_missing_field"]:
             stage_section += f"\nNext question to ask: {ctx['next_missing_field']}"
 

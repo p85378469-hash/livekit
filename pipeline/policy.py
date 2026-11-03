@@ -1,272 +1,277 @@
-# ==============================================================================
-# pipeline/policy.py — The Decision Maker (What should the agent say next?)
-#
-# IN SIMPLE WORDS:
-# When the customer answers a question, this file decides what to say in response:
-# 1. Did the customer say "stop calling" / "not interested"?
-#    -> Say polite goodbye and hang up.
-# 2. Did we fail to understand the budget or location?
-#    -> Politely ask them to clarify (e.g. "Sorry, could you repeat the budget?").
-# 3. What piece of information are we still missing?
-#    - Do we need Location? -> Ask: "మీరు ఏ ప్రాంతంలో ఇల్లు వెతుకుతున్నారు?"
-#    - Do we need Budget?   -> Ask: "మీ బడ్జెట్ ఎంత? (50 లక్షలు, 1 కోటి?)"
-#    - Do we need Property? -> Ask: "ఫ్లాట్ లేదా విల్లా?"
-#    - Do we have everything? -> Say: "ధన్యవాదాలు! మా ఏజెంట్ మిమ్మల్ని సంప్రదిస్తారు."
-#
-# Fast Response Trick (PYTHON_DIRECT vs LLM_GENERATE):
-# For standard step-by-step questions, we reply instantly with Python templates
-# without waiting for OpenRouter/Groq!
-# We only call the AI when the user asks an unexpected, open-ended question.
-# ==============================================================================
-
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Optional
+
 import structlog
 
-from core.session import ConversationSession, AgentFacts
+from core.session import AgentFacts, ConversationSession
 
 log = structlog.get_logger(__name__)
 
 
-# ------------------------------------------------------------------------------
-# ResponseMode — How we create the answer
-# ------------------------------------------------------------------------------
 class ResponseMode(Enum):
-    PYTHON_DIRECT = auto()   # Fixed template (zero delay, instant Telugu audio)
-    LLM_GENERATE  = auto()   # Send to OpenRouter / Groq AI (for smart custom answers)
+    PYTHON_DIRECT = auto()
+    LLM_GENERATE = auto()
 
 
-# ------------------------------------------------------------------------------
-# PolicyDecision — The Result of the Decision Maker
-# ------------------------------------------------------------------------------
 @dataclass
 class PolicyDecision:
-    mode: ResponseMode                  # PYTHON_DIRECT or LLM_GENERATE
-    direct_text: Optional[str] = None   # The Telugu text to speak (if PYTHON_DIRECT)
-    llm_prompt: Optional[str] = None    # The prompt to send to the AI (if LLM_GENERATE)
-    next_stage: Optional[str] = None    # The next step in the conversation
+    mode: ResponseMode
+    direct_text: Optional[str] = None
+    llm_prompt: Optional[str] = None
+    next_stage: Optional[str] = None
+    intent: str = "continue_qualification"
 
 
-# ------------------------------------------------------------------------------
-# Standard Telugu Question Scripts
-# ------------------------------------------------------------------------------
-_Q_LOCATION = (
-    "మీరు ఏ ప్రాంతంలో ఇల్లు వెతుకుతున్నారు? "
-    "ఉదాహరణకు — విజయవాడ, గుంటూరు, హైదరాబాద్?"
+_Q_LOCATION = "మీరు ఏ ప్రాంతంలో ఇల్లు వెతుకుతున్నారు? ఉదాహరణకు విజయవాడ, గుంటూరు లేదా హైదరాబాద్?"
+_Q_BUDGET = "మీ బడ్జెట్ ఎంత? ఉదాహరణకు 50 లక్షలు లేదా 1 కోటి."
+_Q_PROPERTY_TYPE = "మీకు ఎలాంటి ప్రాపర్టీ కావాలి — ఫ్లాట్, విల్లా, ఇండిపెండెంట్ హౌస్ లేదా ప్లాట్?"
+_Q_BEDROOMS = "మీకు ఎన్ని బెడ్‌రూమ్‌లు కావాలి? 2BHK లేదా 3BHK?"
+_Q_TIMELINE = "మీరు ఎప్పటిలోపు ప్రాపర్టీ కొనాలనుకుంటున్నారు?"
+_Q_CONSENT = "మా ఏజెంట్ మీకు మళ్ళీ కాల్ చేసి వివరాలు అందించవచ్చా?"
+_Q_CLARIFY = {
+    "location": "క్షమించండి, మీరు చెప్పిన ప్రాంతం సరిగ్గా అర్థం కాలేదు. మరోసారి చెప్పగలరా?",
+    "budget_rupees": "క్షమించండి, మీ బడ్జెట్ సరిగ్గా అర్థం కాలేదు. మరోసారి చెప్పగలరా?",
+    "property_type": "మీకు ఫ్లాట్, విల్లా లేదా ప్లాట్ — వీటిలో ఏది కావాలి?",
+    "bedrooms": "మీకు ఎన్ని బెడ్‌రూమ్‌లు కావాలో మరోసారి చెప్పగలరా?",
+    "timeline": "మీరు ఎప్పటిలోపు కొనాలనుకుంటున్నారో చెప్పగలరా?",
+    "consent": "మా ఏజెంట్ మిమ్మల్ని సంప్రదించడానికి అంగీకరిస్తారా?",
+}
+_QUESTIONS = {
+    "location": _Q_LOCATION,
+    "budget_rupees": _Q_BUDGET,
+    "property_type": _Q_PROPERTY_TYPE,
+    "bedrooms": _Q_BEDROOMS,
+    "timeline": _Q_TIMELINE,
+    "consent": _Q_CONSENT,
+}
+_GOODBYE_OPT_OUT = "అర్థమైంది. ఇకపై మిమ్మల్ని సంప్రదించము. మీ సమయానికి ధన్యవాదాలు. నమస్కారం."
+_GOODBYE_NOT_INTERESTED = "అర్థమైంది. మీ సమయానికి ధన్యవాదాలు. నమస్కారం."
+_CONFIRM_HANDOFF = "మీరు పంచుకున్న వివరాలకు ధన్యవాదాలు. నమస్కారం."
+
+# A bare 'వద్దు' can refuse one question; only explicit contact-stop language ends a call.
+_OPT_OUT_RE = re.compile(
+    r"\b(?:stop\s+calling|do\s+not\s+call|don't\s+call|unsubscribe|remove\s+me)\b"
+    r"|కాల్\s*చేయకండి|మళ్ళీ\s*కాల్\s*చేయకండి|సంప్రదించకండి",
+    re.IGNORECASE,
 )
-_Q_BUDGET = (
-    "మీ బడ్జెట్ ఎంత? లక్షలలో చెప్పండి — "
-    "ఉదాహరణకు '50 లక్షలు' లేదా '1 కోటి'."
+_QUESTION_MARKERS = (
+    "ఏమిటి", "ఏంటి", "ఏది", "ఎక్కడ", "ఎలా", "ఎందుకు", "ఉన్నాయా", "కావాలా",
+    "what", "which", "where", "how", "why", "who", "do you", "is there",
+    "are there", "can you", "could you", "ప్రశ్న", "ఎలాంటి", "ఏ రకమైన",
+    "ఎంత", "ఎప్పుడు", "ఏమైనా", "మీ దగ్గర", "details", "వివరాలు",
 )
-_Q_PROPERTY_TYPE = (
-    "మీకు ఏ రకమైన ఆస్తి కావాలి? "
-    "ఫ్లాట్, విల్లా, ఇండిపెండెంట్ హౌస్, లేదా ప్లాట్?"
+_DOUBT_MARKERS = (
+    "నాకు ఒక డౌట్ ఉంది", "నాకు డౌట్ ఉంది", "ఒక డౌట్ ఉంది", "డౌట్ ఉంది",
+    "నాకు ఒక సందేహం ఉంది", "నాకు సందేహం ఉంది", "ఒక సందేహం ఉంది", "సందేహం ఉంది",
+    "నాకు అర్థం కాలేదు", "అర్థం కాలేదు", "వివరంగా చెప్పండి", "మరోసారి వివరించండి",
+    "i have a doubt", "i have a question", "i don't understand", "i do not understand",
+    "can you clarify", "please explain", "explain that",
 )
-_Q_BEDROOMS = "మీకు ఎన్ని బెడ్‌రూమ్‌లు కావాలి? 2BHK, 3BHK?"
-_Q_TIMELINE  = "మీరు ఎప్పటి లోపు కొనాలనుకుంటున్నారు?"
-_Q_CONSENT   = (
-    "మా ఏజెంట్ మీకు మళ్ళీ కాల్ చేసి వివరాలు అందించవచ్చా?"
+_UNDECIDED_MARKERS = (
+    "ఇంకా నిర్ణయించుకోలేదు", "నిర్ణయం తీసుకోలేదు", "నిర్ణయించలేదు", "decide కాలేదు", "తెలియదు", "not decided",
+    "haven't decided", "have not decided", "not sure", "undecided", "budget flexible", "flexible", "ఏదైనా అయినా పర్వాలేదు",
 )
-_Q_CLARIFY_BUDGET = (
-    "క్షమించండి — బడ్జెట్ సరిగ్గా అర్థం కాలేదు. "
-    "మళ్ళీ చెప్పగలరా? ఉదాహరణకు '50 లక్షలు' లేదా '1.2 కోటి'."
+_DEFER_MARKERS = (
+    "తర్వాత చెప్తాను", "తర్వాత చెప్తా", "తర్వాత మాట్లాడదాం", "తర్వాత",
+    "later", "tell you later", "another time",
 )
-_Q_CLARIFY_LOCATION = (
-    "మీరు చెప్పిన ప్రాంతం సరిగ్గా అర్థం కాలేదు. "
-    "దయచేసి మళ్ళీ చెప్పగలరా?"
+_REFUSAL_MARKERS = (
+    "చెప్పను", "చెప్పడం ఇష్టం లేదు", "షేర్ చేయను", "పంచుకోను",
+    "వద్దు", "don't want to share", "prefer not to say", "won't share",
+)
+_REPEAT_MARKERS = (
+    "మళ్ళీ చెప్పండి", "మరోసారి చెప్పండి", "repeat", "say that again", "పునరావృతం",
 )
 
-_GOODBYE_OPT_OUT = (
-    "అర్థమైంది. మీ సమయానికి ధన్యవాదాలు. మళ్ళీ అవసరమైతే తప్పకుండా సంప్రదించండి. నమస్కారం."
-)
-_CONFIRM_HANDOFF = (
-    "మీ వివరాలు నమోదు చేసాం. మా ఏజెంట్ త్వరలో మీకు సంప్రదిస్తారు. ధన్యవాదాలు!"
-)
 
-
-# ------------------------------------------------------------------------------
-# PolicySelector Class
-# ------------------------------------------------------------------------------
 class PolicySelector:
-    """
-    Evaluates current call state and selects the next question or response.
-    """
+    """Select safe deterministic actions or delegate conversational turns to the LLM."""
 
-    # The step-by-step order in which we collect information from the customer
     FACT_COLLECTION_ORDER = [
-        "location",
-        "budget_rupees",
-        "property_type",
-        "bedrooms",
-        "timeline",
-        "consent",
+        "location", "budget_rupees", "property_type", "bedrooms", "timeline", "consent"
     ]
 
-    def select(
-        self,
-        session: ConversationSession,
-        extraction,
-    ) -> PolicyDecision:
-        """
-        Calculates the best next move for this turn.
-        
-        session: Current call state and notepad.
-        extraction: Facts extracted from the caller's last sentence.
-        """
-        facts = session.facts
+    def select(self, session: ConversationSession, extraction) -> PolicyDecision:
+        self._ensure_policy_state(session)
+        user_text = session.recent_turns[-1].normalized_transcript.strip() if session.recent_turns else ""
+        lower = user_text.lower()
+        pending = session.pending_field
 
-        # Rule 1: Opt-Out Check (Caller said "Stop calling me" or "Not interested")
-        if extraction.opted_out or facts.opted_out:
-            log.info("policy.opted_out")
+        if _OPT_OUT_RE.search(user_text):
+            session.update_fact("opted_out", True, raw_text=user_text)
+            session.update_stage("ended")
+            return PolicyDecision(ResponseMode.PYTHON_DIRECT, _GOODBYE_OPT_OUT, next_stage="ended", intent="global_opt_out")
+
+        if any(marker in lower for marker in ("not interested", "ఆసక్తి లేదు", "ఇష్టం లేదు")):
+            session.update_stage("ended")
+            return PolicyDecision(ResponseMode.PYTHON_DIRECT, _GOODBYE_NOT_INTERESTED, next_stage="ended", intent="customer_not_interested")
+
+        self._apply_extraction(session, extraction, user_text)
+        next_field = self._next_missing_field(session.facts, session)
+
+        # If the caller signals confusion but has not stated the question, invite them
+        # to explain while preserving the active qualification slot.
+        if any(marker in lower for marker in _DOUBT_MARKERS) and not self._looks_like_question(lower):
+            # If the same utterance also supplied the pending fact, advance the slot;
+            # otherwise keep asking for the caller's clarification.
+            doubt_pending = next_field if self._has_extracted_fact(extraction, pending) else pending
+            session.pending_field = doubt_pending
+            session.next_missing_field = doubt_pending
             return PolicyDecision(
-                mode=ResponseMode.PYTHON_DIRECT,
-                direct_text=_GOODBYE_OPT_OUT,
-                next_stage="ended",
+                ResponseMode.PYTHON_DIRECT,
+                "తప్పకుండా, మీకు ఏ విషయం గురించి సందేహం ఉందో చెప్పండి. నేను వివరిస్తాను.",
+                next_stage=doubt_pending or session.stage,
+                intent="customer_has_doubt",
             )
 
-        # Rule 2: Save any newly mentioned facts to session
-        self._apply_extraction(session, extraction)
+        # Save facts first, but answer a simultaneous customer question before continuing.
+        if self._looks_like_question(lower):
+            session.pending_field = next_field
+            session.next_missing_field = next_field
+            return PolicyDecision(
+                ResponseMode.LLM_GENERATE,
+                llm_prompt=self._build_llm_prompt(session, user_text),
+                next_stage=next_field or session.stage,
+                intent="customer_question",
+            )
 
-        # Rule 2b: Question Detection (Did the caller ask an open-ended question?)
-        # If the caller is asking something (e.g., "Which areas are good?", "Do you have flats?"),
-        # we delegate to OpenRouter LLM to answer naturally rather than rigidly pushing the script.
-        user_query = ""
-        if session.recent_turns:
-            user_query = session.recent_turns[-1].normalized_transcript.lower()
+        if any(marker in lower for marker in _REPEAT_MARKERS):
+            field = pending or next_field
+            if field:
+                session.pending_field = field
+                return PolicyDecision(
+                    ResponseMode.PYTHON_DIRECT, _QUESTIONS.get(field, _Q_CLARIFY.get(field)),
+                    next_stage=field, intent="repeat_question",
+                )
 
-        is_question = (
-            "?" in user_query
-            or any(q in user_query for q in [
-                "ఏమిటి", "ఏది", "ఎక్కడ", "ఎలా", "ఎందుకు", "ఉన్నాయా", "చెప్పండి",
-                "what", "which", "where", "how", "why", "who", "tell me", "explain", "is there", "are there"
-            ])
+        if self._has_extracted_fact(extraction, pending):
+            return self._ask_next_or_finish(
+                session, self._next_missing_field(session.facts, session), intent="fact_answered"
+            )
+
+        if pending and any(marker in lower for marker in _UNDECIDED_MARKERS):
+            session.deferred_fields.add(pending)
+            session.pending_field = None
+            return self._acknowledge_and_continue(
+                session, self._next_missing_field(session.facts, session), "customer_undecided"
+            )
+
+        if pending and any(marker in lower for marker in _DEFER_MARKERS):
+            session.deferred_fields.add(pending)
+            session.pending_field = None
+            return self._acknowledge_and_continue(
+                session, self._next_missing_field(session.facts, session), "customer_deferred"
+            )
+
+        if pending and any(marker in lower for marker in _REFUSAL_MARKERS):
+            session.refused_fields.add(pending)
+            session.pending_field = None
+            return self._acknowledge_and_continue(
+                session, self._next_missing_field(session.facts, session), "customer_refused"
+            )
+
+        if pending:
+            return PolicyDecision(
+                ResponseMode.PYTHON_DIRECT,
+                _Q_CLARIFY.get(pending, "క్షమించండి, మరోసారి చెప్పగలరా?"),
+                next_stage=pending, intent="clarify_pending_field",
+            )
+
+        return self._ask_next_or_finish(
+            session, self._next_missing_field(session.facts, session), intent="start_or_continue"
         )
 
-        if is_question:
-            log.info("policy.customer_question_detected", query=user_query[:50])
-            return PolicyDecision(
-                mode=ResponseMode.LLM_GENERATE,
-                llm_prompt=self._build_llm_prompt(session),
-                next_stage=session.stage,
-            )
+    def _ensure_policy_state(self, session: ConversationSession) -> None:
+        # Backward compatibility for older callers that set stage/next_missing_field.
+        if getattr(session, "pending_field", None) is None:
+            stage_aliases = {
+                "location": "location", "budget": "budget_rupees",
+                "property": "property_type", "property_type": "property_type",
+                "bedrooms": "bedrooms", "timeline": "timeline", "consent": "consent",
+            }
+            candidate = getattr(session, "next_missing_field", None) or stage_aliases.get(session.stage)
+            session.pending_field = candidate if candidate in self.FACT_COLLECTION_ORDER else None
+        if not hasattr(session, "deferred_fields"):
+            session.deferred_fields = set()
+        if not hasattr(session, "refused_fields"):
+            session.refused_fields = set()
 
-        # Rule 3: Clarify an unrecognized answer to the field currently being collected.
-        # Recent turns contain caller transcripts, not agent speech; session.stage
-        # is the reliable indicator of which qualification field is pending.
-        if extraction.budget_rupees is None and session.stage == "budget":
-            log.info("policy.clarify_budget")
-            return PolicyDecision(
-                mode=ResponseMode.PYTHON_DIRECT,
-                direct_text=_Q_CLARIFY_BUDGET,
-                next_stage="budget",
-            )
+    def _apply_extraction(self, session, extraction, raw_text: str) -> None:
+        for name in ("location", "budget_rupees", "property_type", "bedrooms", "timeline"):
+            value = getattr(extraction, name, None)
+            if value is not None:
+                session.update_fact(name, value, raw_text=raw_text)
+        # A bare 'no' while asking for budget is not consent. Only interpret yes/no
+        # as contact consent when the consent question is the active pending slot.
+        if session.pending_field == "consent" and extraction.consent is not None:
+            session.update_fact("consent", extraction.consent, raw_text=raw_text)
 
-        if extraction.location is None and session.stage == "location":
-            log.info("policy.clarify_location")
-            return PolicyDecision(
-                mode=ResponseMode.PYTHON_DIRECT,
-                direct_text=_Q_CLARIFY_LOCATION,
-                next_stage="location",
-            )
+    def _has_extracted_fact(self, extraction, pending: Optional[str] = None) -> bool:
+        names = ("location", "budget_rupees", "property_type", "bedrooms", "timeline")
+        if pending == "consent":
+            names += ("consent",)
+        return any(getattr(extraction, name, None) is not None for name in names)
 
-        # Rule 4: Find the next missing question in our checklist
-        next_field = self._next_missing_field(facts)
-
-        if next_field is None:
-            # All 6 questions answered! Wrap up and thank the customer
-            log.info("policy.all_facts_collected")
-            return PolicyDecision(
-                mode=ResponseMode.PYTHON_DIRECT,
-                direct_text=_CONFIRM_HANDOFF,
-                next_stage="handoff",
-            )
-
-        # Rule 5: Ask the next question using our fixed template (fastest path)
-        question = self._question_for_field(next_field)
-        if question:
-            log.info("policy.next_question", field=next_field)
-            return PolicyDecision(
-                mode=ResponseMode.PYTHON_DIRECT,
-                direct_text=question,
-                next_stage=next_field,
-            )
-
-        # Rule 6: Fallback to AI (OpenRouter / Groq) if the conversation went off-script
-        log.info("policy.llm_fallback", stage=session.stage)
-        return PolicyDecision(
-            mode=ResponseMode.LLM_GENERATE,
-            llm_prompt=self._build_llm_prompt(session),
-            next_stage=session.stage,
-        )
-
-    # --------------------------------------------------------------------------
-    # Helpers
-    # --------------------------------------------------------------------------
-    def _apply_extraction(
-        self,
-        session: ConversationSession,
-        extraction,
-    ) -> None:
-        """Saves newly extracted values to the session state."""
-        if extraction.location is not None:
-            session.update_fact("location", extraction.location)
-        if extraction.budget_rupees is not None:
-            session.update_fact("budget_rupees", extraction.budget_rupees)
-        if extraction.property_type is not None:
-            session.update_fact("property_type", extraction.property_type)
-        if extraction.bedrooms is not None:
-            session.update_fact("bedrooms", extraction.bedrooms)
-        if extraction.consent is not None:
-            session.update_fact("consent", extraction.consent)
-        if extraction.opted_out:
-            session.update_fact("opted_out", True)
-
-    def _next_missing_field(self, facts: AgentFacts) -> Optional[str]:
-        """Scans the checklist to find the first fact that is still None."""
-        for field in self.FACT_COLLECTION_ORDER:
-            val = getattr(facts, field, None)
-            if val is None:
-                return field
+    def _next_missing_field(self, facts: AgentFacts, session) -> Optional[str]:
+        skipped = session.deferred_fields | session.refused_fields
+        for name in self.FACT_COLLECTION_ORDER:
+            if getattr(facts, name, None) is None and name not in skipped:
+                return name
         return None
 
-    def _question_for_field(self, field: str) -> Optional[str]:
-        """Returns the Telugu question text for a given field."""
-        mapping = {
-            "location":       _Q_LOCATION,
-            "budget_rupees":  _Q_BUDGET,
-            "property_type":  _Q_PROPERTY_TYPE,
-            "bedrooms":       _Q_BEDROOMS,
-            "timeline":       _Q_TIMELINE,
-            "consent":        _Q_CONSENT,
+    def _ask_next_or_finish(self, session, next_field: Optional[str], intent: str) -> PolicyDecision:
+        if next_field is None:
+            session.pending_field = None
+            session.next_missing_field = None
+            return PolicyDecision(
+                ResponseMode.PYTHON_DIRECT, _CONFIRM_HANDOFF,
+                next_stage="handoff", intent="qualification_complete",
+            )
+        session.pending_field = next_field
+        session.next_missing_field = next_field
+        return PolicyDecision(
+            ResponseMode.PYTHON_DIRECT, _QUESTIONS[next_field],
+            next_stage=next_field, intent=intent,
+        )
+
+    def _acknowledge_and_continue(self, session, next_field, intent) -> PolicyDecision:
+        acknowledgements = {
+            "customer_undecided": "పర్వాలేదు, మీరు నిర్ణయించుకున్న తర్వాత చెప్పవచ్చు.",
+            "customer_deferred": "సరే, ఆ వివరాన్ని తర్వాత తెలుసుకుందాం.",
+            "customer_refused": "సరే, ఆ సమాచారాన్ని పంచుకోవాల్సిన అవసరం లేదు.",
         }
-        return mapping.get(field)
-
-    def _build_llm_prompt(self, session: ConversationSession) -> str:
-        """Creates the prompt telling the AI who it is and what to say next."""
-        ctx = session.to_context_dict()
-        facts_str = "\n".join(
-            f"  {k}: {v}" for k, v in ctx["facts"].items() if v is not None
+        if next_field is None:
+            return PolicyDecision(
+                ResponseMode.PYTHON_DIRECT, acknowledgements[intent] + " " + _CONFIRM_HANDOFF,
+                next_stage="handoff", intent=intent,
+            )
+        session.pending_field = next_field
+        session.next_missing_field = next_field
+        return PolicyDecision(
+            ResponseMode.PYTHON_DIRECT, acknowledgements[intent] + " " + _QUESTIONS[next_field],
+            next_stage=next_field, intent=intent,
         )
-        recent_str = "\n".join(
-            f"  Turn {t['turn_id']}: {t['normalized']}"
-            for t in ctx["recent_turns"][-3:]
+
+    def _looks_like_question(self, text: str) -> bool:
+        return "?" in text or any(marker in text for marker in _QUESTION_MARKERS)
+
+    def _build_llm_prompt(self, session, user_text: str) -> str:
+        facts = session.to_context_dict()["facts"]
+        known = "\n".join(f"- {key}: {value}" for key, value in facts.items() if value is not None)
+        pending = session.pending_field or "none"
+        return (
+            "You are a Telugu-speaking real-estate lead qualification assistant. "
+            "Answer the caller's latest question first, briefly and naturally in Telugu. "
+            "Do not invent property listings, availability, prices, company policies, locations, or guarantees. "
+            "No verified property inventory/database is connected in this Phase 1 agent; if asked for specific "
+            "listings or live availability, say you cannot verify them and offer human-agent confirmation. "
+            "Do not claim a callback, appointment, or booking is arranged. Do not change stored facts or mark "
+            "qualification complete. After answering, if appropriate, gently return to the pending question. "
+            "Ask at most one question.\n\n"
+            f"Known customer facts:\n{known or '- none'}\n"
+            f"Pending qualification field: {pending}"
         )
-
-        prompt = f"""You are a Telugu-speaking real-estate lead qualification agent.
-Your goal is to collect: location, budget, property type, bedrooms, timeline, and consent.
-Always respond in Telugu. Be polite and concise. Never ask more than one question at a time.
-
-Current facts collected:
-{facts_str or "  (none yet)"}
-
-Recent conversation:
-{recent_str or "  (none)"}
-
-Current stage: {ctx["stage"]}
-Next missing field: {ctx["next_missing_field"] or "all collected"}
-
-Respond with a single natural Telugu sentence to continue the conversation."""
-        return prompt

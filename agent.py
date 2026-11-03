@@ -195,7 +195,9 @@ class TeluguRealEstateAgent(Agent):
         )
 
         if decision.next_stage:
-            self._session.update_stage(decision.next_stage, self._session.next_missing_field)
+            # Policy decisions use canonical fact keys; session.stage retains legacy display names.
+            stage_name = "budget" if decision.next_stage == "budget_rupees" else decision.next_stage
+            self._session.update_stage(stage_name, self._session.next_missing_field)
 
         # Phase 1 Turn-version check: Discard response if turn advanced/invalidated while processing
         if not self._session.is_turn_current(current_turn_id) or self._active_response_turn_id != current_turn_id:
@@ -231,6 +233,8 @@ class TeluguRealEstateAgent(Agent):
         # Caller asked a genuine question or discussion!
         # Update system instructions with up-to-date collected facts so LLM is fully informed.
         updated_system_prompt = self._context_builder.build_system_prompt(self._session)
+        if decision.llm_prompt:
+            updated_system_prompt += "\n\nTurn-specific response policy:\n" + decision.llm_prompt
         try:
             # Verified LiveKit Agent async method
             await self.update_instructions(updated_system_prompt)
