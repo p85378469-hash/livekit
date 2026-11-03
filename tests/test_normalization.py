@@ -196,3 +196,37 @@ def test_bhk_extraction(norm, text, expected_bhk):
     assert result.bedrooms == expected_bhk, (
         f"BHK text '{text}' → expected {expected_bhk}, got {result.bedrooms}"
     )
+
+
+# ── Compositional amount parser coverage ────────────────────────────
+
+@pytest.mark.parametrize("text,expected_rupees", [
+    ("fifty lakhs", 50_00_000),
+    ("one crore", 1_00_00_000),
+    ("one crore fifty lakhs", 1_50_00_000),
+    ("2 crore 50 lakhs", 2_50_00_000),
+    ("2 కోట్లు 50 లక్షలు", 2_50_00_000),
+    ("యాభై లక్షలు", 50_00_000),
+    ("ఇరవై ఐదు లక్షలు", 25_00_000),
+    ("ఒక కోటి యాభై లక్షలు", 1_50_00_000),
+    ("రెండు లక్షల యాభై వేల", 2_50_000),
+    ("50 lakh 20 thousand", 50_20_000),
+    ("2.5 లక్షలు", 2_50_000),
+])
+def test_compositional_budget_expressions(norm, text, expected_rupees):
+    _, normalized = norm.process(text)
+    result = norm.extract(normalized)
+    assert result.budget_rupees == expected_rupees
+
+
+@pytest.mark.parametrize("text", [
+    "50-60 lakhs",
+    "50 to 60 lakhs",
+    "budget flexible",
+    "ఒక కోటి వరకు లేదా అంతకంటే ఎక్కువ",
+])
+def test_ambiguous_or_range_budget_is_not_guessed(norm, text):
+    _, normalized = norm.process(text)
+    result = norm.extract(normalized)
+    if "lakhs" in text and ("-" in text or " to " in text):
+        assert result.budget_rupees is None
