@@ -25,6 +25,7 @@ import logging
 import os
 import time
 import uuid
+from typing import Optional
 from dotenv import load_dotenv
 import structlog
 
