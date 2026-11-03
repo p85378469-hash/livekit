@@ -121,6 +121,9 @@ class ConversationSession:
         # Flow: greeting -> location -> budget -> property -> confirm -> handoff
         self.stage: str = "greeting"
         self.next_missing_field: Optional[str] = None
+        self.pending_field: Optional[str] = None
+        self.deferred_fields: set[str] = set()
+        self.refused_fields: set[str] = set()
 
         log.info("session.created", session_id=session_id)
 
@@ -253,6 +256,9 @@ class ConversationSession:
             },
             "stage": self.stage,
             "next_missing_field": self.next_missing_field,
+            "pending_field": self.pending_field,
+            "deferred_fields": sorted(self.deferred_fields),
+            "refused_fields": sorted(self.refused_fields),
             "recent_turns": [
                 {
                     "turn_id": t.turn_id,
@@ -270,6 +276,9 @@ class ConversationSession:
             "current_turn_id": self._current_turn_id,
             "stage": self.stage,
             "next_missing_field": self.next_missing_field,
+            "pending_field": self.pending_field,
+            "deferred_fields": sorted(self.deferred_fields),
+            "refused_fields": sorted(self.refused_fields),
             "facts": self.facts.__dict__,
             "corrections": [c.__dict__ for c in self.corrections],
             "recent_turns_count": len(self._recent_turns),
