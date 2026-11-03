@@ -232,7 +232,7 @@ class TeluguRealEstateAgent(Agent):
         # Update system instructions with up-to-date collected facts so LLM is fully informed.
         updated_system_prompt = self._context_builder.build_system_prompt(self._session)
         if decision.llm_prompt:
-            updated_system_prompt += "\\n\\nTurn-specific response policy:\\n" + decision.llm_prompt
+            updated_system_prompt += "\n\nTurn-specific response policy:\n" + decision.llm_prompt
         try:
             # Verified LiveKit Agent async method
             await self.update_instructions(updated_system_prompt)
