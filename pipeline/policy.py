@@ -97,7 +97,11 @@ class PolicySelector:
             session.update_stage("ended")
             return PolicyDecision(ResponseMode.PYTHON_DIRECT, _GOODBYE_OPT_OUT, next_stage="ended", intent="global_opt_out")
 
-        if any(marker in lower for marker in ("not interested", "ఆసక్తి లేదు", "ఇష్టం లేదు")):\n            session.update_stage("ended")\n            return PolicyDecision(ResponseMode.PYTHON_DIRECT, _GOODBYE_OPT_OUT, next_stage="ended", intent="customer_not_interested")\n\n        self._apply_extraction(session, extraction, user_text)
+        if any(marker in lower for marker in ("not interested", "ఆసక్తి లేదు", "ఇష్టం లేదు")):
+            session.update_stage("ended")
+            return PolicyDecision(ResponseMode.PYTHON_DIRECT, _GOODBYE_OPT_OUT, next_stage="ended", intent="customer_not_interested")
+
+        self._apply_extraction(session, extraction, user_text)
         next_field = self._next_missing_field(session.facts, session)
 
         # Save facts first, but answer a simultaneous customer question before continuing.
@@ -166,15 +170,20 @@ class PolicySelector:
             session.refused_fields = set()
 
     def _apply_extraction(self, session, extraction, raw_text: str) -> None:
-        for name in ("location", "budget_rupees", "property_type", "bedrooms", "consent"):
+        for name in ("location", "budget_rupees", "property_type", "bedrooms"):
             value = getattr(extraction, name, None)
             if value is not None:
                 session.update_fact(name, value, raw_text=raw_text)
+        # A bare 'no' while asking for budget is not consent. Only interpret yes/no
+        # as contact consent when the consent question is the active pending slot.
+        if session.pending_field == "consent" and extraction.consent is not None:
+            session.update_fact("consent", extraction.consent, raw_text=raw_text)
 
-    def _has_extracted_fact(self, extraction) -> bool:
-        return any(getattr(extraction, name, None) is not None for name in (
-            "location", "budget_rupees", "property_type", "bedrooms", "consent"
-        ))
+    def _has_extracted_fact(self, extraction, pending: Optional[str] = None) -> bool:
+        names = ("location", "budget_rupees", "property_type", "bedrooms")
+        if pending == "consent":
+            names += ("consent",)
+        return any(getattr(extraction, name, None) is not None for name in names)
 
     def _next_missing_field(self, facts: AgentFacts, session) -> Optional[str]:
         skipped = session.deferred_fields | session.refused_fields
