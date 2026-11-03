@@ -219,8 +219,18 @@ class Normalizer:
         return None
 
     def _extract_property_type(self, text: str) -> Optional[str]:
-        """Checks for property words like 'flat', 'apartment', 'villa', or 'plot'."""
+        """Extract a property preference, not a type mentioned only in an availability question."""
         lower = text.lower()
+        availability_question = any(marker in lower for marker in (
+            "do you have", "are there", "available", "మీ దగ్గర", "ఉన్నాయా",
+            "ఎలాంటి ప్రాపర్టీస్", "ఏ ప్రాపర్టీస్", "ప్రాపర్టీలు ఉన్నాయి",
+        ))
+        explicit_preference = any(marker in lower for marker in (
+            "i want", "i need", "looking for", "want a", "need a", "కావాలి",
+            "వెతుకుతున్నాను", "తీసుకోవాలి", "నాకు",
+        ))
+        if availability_question and not explicit_preference:
+            return None
         for alias, canonical in _PROP_ALIAS_MAP.items():
             if alias in lower:
                 return canonical
