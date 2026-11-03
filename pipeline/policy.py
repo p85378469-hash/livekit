@@ -172,7 +172,7 @@ class PolicySelector:
             session.refused_fields = set()
 
     def _apply_extraction(self, session, extraction, raw_text: str) -> None:
-        for name in ("location", "budget_rupees", "property_type", "bedrooms"):
+        for name in ("location", "budget_rupees", "property_type", "bedrooms", "timeline"):
             value = getattr(extraction, name, None)
             if value is not None:
                 session.update_fact(name, value, raw_text=raw_text)
@@ -182,7 +182,7 @@ class PolicySelector:
             session.update_fact("consent", extraction.consent, raw_text=raw_text)
 
     def _has_extracted_fact(self, extraction, pending: Optional[str] = None) -> bool:
-        names = ("location", "budget_rupees", "property_type", "bedrooms")
+        names = ("location", "budget_rupees", "property_type", "bedrooms", "timeline")
         if pending == "consent":
             names += ("consent",)
         return any(getattr(extraction, name, None) is not None for name in names)
