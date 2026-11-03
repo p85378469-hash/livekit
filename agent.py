@@ -191,8 +191,15 @@ class TeluguRealEstateAgent(Agent):
         # timeout/API/parse/low-confidence failure, the existing Python policy runs.
         jev_intent = None
         if self._jev_client is not None and self._jev_client.enabled:
+            jev_started = time.perf_counter()
             jev_result = await self._jev_client.classify(
                 build_jev_state(self._session, raw_transcript)
+            )
+            log.info(
+                "jev.latency",
+                duration_ms=round((time.perf_counter() - jev_started) * 1000, 1),
+                turn_id=current_turn_id,
+                used_fallback=jev_result is None,
             )
             if jev_result is not None:
                 jev_intent = jev_result.intent
