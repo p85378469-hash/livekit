@@ -25,6 +25,7 @@ import logging
 import os
 import time
 import uuid
+from typing import Optional
 from dotenv import load_dotenv
 import structlog
 
@@ -48,6 +49,7 @@ from core.session import ConversationSession
 from pipeline.normalizer import Normalizer
 from pipeline.policy import PolicySelector, ResponseMode
 from pipeline.context import ContextBuilder
+from pipeline.jev_decision import JevDecisionClient, build_jev_state
 from telemetry.latency import LatencyTracker, Stage
 
 # Configure structured logging for clean terminal output
@@ -86,6 +88,7 @@ class TeluguRealEstateAgent(Agent):
         context_builder: ContextBuilder,
         session_id: str,
         agent_session: AgentSession,
+        jev_client: Optional[JevDecisionClient] = None,
     ) -> None:
         system_instructions = context_builder.build_system_prompt()
         super().__init__(instructions=system_instructions)
@@ -97,6 +100,7 @@ class TeluguRealEstateAgent(Agent):
         self._context_builder = context_builder
         self._session_id = session_id
         self._agent_session = agent_session
+        self._jev_client = jev_client
         self._processed_message_ids: deque[str] = deque(maxlen=128)
         self._active_response_turn_id: int = 0
 
@@ -183,8 +187,32 @@ class TeluguRealEstateAgent(Agent):
         # 2. Extract facts (Location, Budget, BHK)
         extraction = self._normalizer.extract(normalized_transcript)
 
-        # 3. Policy selector: Decide whether AI is needed or fixed answer
-        decision = self._policy.select(self._session, extraction)
+        # 3. Experimental Jev intent classification. Disabled by default; on any
+        # timeout/API/parse/low-confidence failure, the existing Python policy runs.
+        jev_intent = None
+        if self._jev_client is not None and self._jev_client.enabled:
+            jev_started = time.perf_counter()
+            jev_result = await self._jev_client.classify(
+                build_jev_state(self._session, raw_transcript)
+            )
+            log.info(
+                "jev.latency",
+                duration_ms=round((time.perf_counter() - jev_started) * 1000, 1),
+                turn_id=current_turn_id,
+                used_fallback=jev_result is None,
+            )
+            if jev_result is not None:
+                jev_intent = jev_result.intent
+                log.info(
+                    "pipeline.jev_intent_received",
+                    intent=jev_result.intent,
+                    confidence=jev_result.confidence,
+                    model=jev_result.model,
+                    turn_id=current_turn_id,
+                )
+
+        # Python remains the policy/state owner. Jev supplies only an advisory intent label.
+        decision = self._policy.select(self._session, extraction, intent_override=jev_intent)
         self._latency.record(Stage.PYTHON_COMPLETE)
 
         log.info(
@@ -300,6 +328,13 @@ async def entrypoint(ctx: JobContext) -> None:
     normalizer = Normalizer()
     policy = PolicySelector()
     context_builder = ContextBuilder()
+    jev_client = JevDecisionClient()
+    log.info(
+        "jev.experiment_configuration",
+        enabled=jev_client.enabled,
+        model=jev_client.model,
+        timeout_seconds=jev_client.timeout_seconds,
+    )
 
     # 3. Initialize Provider Plugins (LiveKit 1.x)
     # STT Provider Selection (Soniox as primary Telugu engine; Whisper when explicitly configured)
@@ -375,6 +410,7 @@ async def entrypoint(ctx: JobContext) -> None:
         context_builder=context_builder,
         session_id=session_id,
         agent_session=session_voice,
+        jev_client=jev_client,
     )
 
     # 4b. Wire Phase 1 documented LiveKit session events (Transcript, Latency, & State)
