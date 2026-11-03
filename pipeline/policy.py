@@ -49,7 +49,8 @@ _QUESTIONS = {
     "consent": _Q_CONSENT,
 }
 _GOODBYE_OPT_OUT = "అర్థమైంది. ఇకపై మిమ్మల్ని సంప్రదించము. మీ సమయానికి ధన్యవాదాలు. నమస్కారం."
-_CONFIRM_HANDOFF = "ధన్యవాదాలు. మీ వివరాలు మా బృందానికి పంపిస్తాము. వారు మీతో సంప్రదిస్తారు."
+_GOODBYE_NOT_INTERESTED = "అర్థమైంది. మీ సమయానికి ధన్యవాదాలు. నమస్కారం."
+_CONFIRM_HANDOFF = "మీరు పంచుకున్న వివరాలకు ధన్యవాదాలు. నమస్కారం."
 
 # A bare 'వద్దు' can refuse one question; only explicit contact-stop language ends a call.
 _OPT_OUT_RE = re.compile(
@@ -99,7 +100,7 @@ class PolicySelector:
 
         if any(marker in lower for marker in ("not interested", "ఆసక్తి లేదు", "ఇష్టం లేదు")):
             session.update_stage("ended")
-            return PolicyDecision(ResponseMode.PYTHON_DIRECT, _GOODBYE_OPT_OUT, next_stage="ended", intent="customer_not_interested")
+            return PolicyDecision(ResponseMode.PYTHON_DIRECT, _GOODBYE_NOT_INTERESTED, next_stage="ended", intent="customer_not_interested")
 
         self._apply_extraction(session, extraction, user_text)
         next_field = self._next_missing_field(session.facts, session)
