@@ -87,6 +87,26 @@ def test_telugu_budget_extraction(norm, text, expected_rupees):
     )
 
 
+# ── Test 3b: Arabic numerals + Telugu currency units ────────────────
+
+@pytest.mark.parametrize("text,expected_rupees", [
+    ("50 లాక్స్", 50_00_000),
+    ("50 లాక్", 50_00_000),
+    ("50 లక్షలు", 50_00_000),
+    ("ఆహ్, 50 లాక్స్", 50_00_000),
+    ("అదే చెప్పా కదా, 50 లాక్స్ అని", 50_00_000),
+    ("50 కోట్లు", 50_00_00_000),
+    ("2.5 లక్షలు", 2_50_000),
+    ("75 వేల", 75_000),
+])
+def test_digit_telugu_budget_extraction(norm, text, expected_rupees):
+    _, normalized = norm.process(text)
+    result = norm.extract(normalized)
+    assert result.budget_rupees == expected_rupees, (
+        f"Text: '{text}' → expected ₹{expected_rupees}, got ₹{result.budget_rupees}"
+    )
+
+
 # ── Test 4: Location alias → canonical ──────────────────────────────
 
 @pytest.mark.parametrize("text,expected_location", [
