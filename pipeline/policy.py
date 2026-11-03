@@ -127,25 +127,22 @@ class PolicySelector:
         self._apply_extraction(session, extraction, user_text)
         next_field = self._next_missing_field(session.facts, session)
 
-        # If the caller signals confusion but has not stated the question, invite them
-        # to explain while preserving the active qualification slot.
-        if intent_override == "doubt_without_question" or (
-            any(marker in lower for marker in _DOUBT_MARKERS) and not self._looks_like_question(lower)
+        # Doubts and questions both belong to the conversational LLM path.
+        # If the caller only says they have a doubt, the LLM should invite them to explain.
+        if intent_override in ("question", "doubt_without_question") or self._looks_like_question(lower) or (
+            any(marker in lower for marker in _DOUBT_MARKERS)
         ):
-            # If the same utterance also supplied the pending fact, advance the slot;
-            # otherwise keep asking for the caller's clarification.
-            doubt_pending = next_field if self._has_extracted_fact(extraction, pending) else pending
-            session.pending_field = doubt_pending
-            session.next_missing_field = doubt_pending
+            session.pending_field = next_field
+            session.next_missing_field = next_field
             return PolicyDecision(
-                ResponseMode.PYTHON_DIRECT,
-                "తప్పకుండా, మీకు ఏ విషయం గురించి సందేహం ఉందో చెప్పండి. నేను వివరిస్తాను.",
-                next_stage=doubt_pending or session.stage,
-                intent="customer_has_doubt",
+                ResponseMode.LLM_GENERATE,
+                llm_prompt=self._build_llm_prompt(session, user_text),
+                next_stage=next_field or session.stage,
+                intent="customer_doubt" if intent_override == "doubt_without_question" or any(
+                    marker in lower for marker in _DOUBT_MARKERS
+                ) else "customer_question",
             )
 
-        # Save facts first, but answer a simultaneous customer question before continuing.
-        if intent_override == "question" or self._looks_like_question(lower):
             session.pending_field = next_field
             session.next_missing_field = next_field
             return PolicyDecision(
@@ -289,6 +286,7 @@ class PolicySelector:
         return (
             "You are a Telugu-speaking real-estate lead qualification assistant. "
             "Answer the caller's latest question first, briefly and naturally in Telugu. "
+            "If the caller only says they have a doubt but has not stated it, invite them to explain. "
             "Do not invent property listings, availability, prices, company policies, locations, or guarantees. "
             "No verified property inventory/database is connected in this Phase 1 agent; if asked for specific "
             "listings or live availability, say you cannot verify them and offer human-agent confirmation. "
