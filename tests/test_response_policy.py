@@ -126,3 +126,14 @@ def test_availability_question_does_not_save_property_type_as_preference():
     assert session.facts.property_type is None
     assert decision.mode is ResponseMode.LLM_GENERATE
     assert session.pending_field == "property_type"
+
+
+def test_unrelated_extracted_fact_does_not_satisfy_pending_budget():
+    session = session_waiting_for_budget()
+    decision = run_turn(session, "నాకు 2BHK కావాలి")
+    assert session.facts.bedrooms == 2
+    assert session.facts.budget_rupees is None
+    assert decision.intent == "clarify_pending_field"
+    assert decision.next_stage == "budget_rupees"
+    assert session.pending_field == "budget_rupees"
+
