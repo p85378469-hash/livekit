@@ -44,6 +44,7 @@ _NUMBER_WORDS = {
 _HUNDRED_WORDS = {"hundred", "వంద", "వందలు"}
 _CONNECTORS = {"and", "మరియు"}
 _FRACTION_WORDS = {"half": Decimal("0.5"), "అర": Decimal("0.5")}
+_COMPOUND_AMOUNT_VALUES = {"అరకోటి": 5_000_000, "అరలక్ష": 50_000}
 _TOKEN_RE = re.compile(r"\d+(?:,\d{2,3})*(?:\.\d+)?|[A-Za-z]+|[\u0C00-\u0C7F]+", re.UNICODE)
 _RANGE_RE = re.compile(r"\d\s*(?:-|–|to|నుంచి)\s*\d", re.IGNORECASE)
 
@@ -87,6 +88,12 @@ def parse_indian_amount(text: str) -> Optional[int]:
     while i < len(tokens):
         token = tokens[i]
         lower = token.lower()
+
+        if lower in _COMPOUND_AMOUNT_VALUES:
+            total += _COMPOUND_AMOUNT_VALUES[lower]
+            found_unit = True
+            i += 1
+            continue
 
         if lower in _UNIT_VALUES:
             # A unit without a preceding number is not enough to infer an amount.
