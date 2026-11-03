@@ -466,7 +466,7 @@ def test_unrecognized_budget_answer_uses_clarification(session):
 
     assert decision.mode == ResponseMode.PYTHON_DIRECT
     assert "బడ్జెట్ సరిగ్గా అర్థం కాలేదు" in decision.direct_text
-    assert decision.next_stage == "budget"
+    assert decision.next_stage == "budget_rupees"
 
 
 def test_unrecognized_location_answer_uses_clarification(session):
