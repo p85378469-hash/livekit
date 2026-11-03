@@ -153,24 +153,24 @@ class PolicySelector:
                 next_stage=session.stage,
             )
 
-        # Rule 3: Clarification Check (Did we ask for budget/location, but got gibberish?)
+        # Rule 3: Clarify an unrecognized answer to the field currently being collected.
+        # Recent turns contain caller transcripts, not agent speech; session.stage
+        # is the reliable indicator of which qualification field is pending.
         if extraction.budget_rupees is None and session.stage == "budget":
-            if self._asked_budget(session):
-                log.info("policy.clarify_budget")
-                return PolicyDecision(
-                    mode=ResponseMode.PYTHON_DIRECT,
-                    direct_text=_Q_CLARIFY_BUDGET,
-                    next_stage="budget",
-                )
+            log.info("policy.clarify_budget")
+            return PolicyDecision(
+                mode=ResponseMode.PYTHON_DIRECT,
+                direct_text=_Q_CLARIFY_BUDGET,
+                next_stage="budget",
+            )
 
         if extraction.location is None and session.stage == "location":
-            if self._asked_location(session):
-                log.info("policy.clarify_location")
-                return PolicyDecision(
-                    mode=ResponseMode.PYTHON_DIRECT,
-                    direct_text=_Q_CLARIFY_LOCATION,
-                    next_stage="location",
-                )
+            log.info("policy.clarify_location")
+            return PolicyDecision(
+                mode=ResponseMode.PYTHON_DIRECT,
+                direct_text=_Q_CLARIFY_LOCATION,
+                next_stage="location",
+            )
 
         # Rule 4: Find the next missing question in our checklist
         next_field = self._next_missing_field(facts)
@@ -243,20 +243,6 @@ class PolicySelector:
             "consent":        _Q_CONSENT,
         }
         return mapping.get(field)
-
-    def _asked_budget(self, session: ConversationSession) -> bool:
-        """Returns True if the word budget was asked in recent turns."""
-        for turn in session.recent_turns:
-            if "బడ్జెట్" in turn.normalized_transcript or "budget" in turn.normalized_transcript.lower():
-                return True
-        return False
-
-    def _asked_location(self, session: ConversationSession) -> bool:
-        """Returns True if location was asked in recent turns."""
-        for turn in session.recent_turns:
-            if "ప్రాంతం" in turn.normalized_transcript or "location" in turn.normalized_transcript.lower():
-                return True
-        return False
 
     def _build_llm_prompt(self, session: ConversationSession) -> str:
         """Creates the prompt telling the AI who it is and what to say next."""
