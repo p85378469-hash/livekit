@@ -111,7 +111,7 @@ class PolicySelector:
             return PolicyDecision(
                 ResponseMode.LLM_GENERATE,
                 llm_prompt=self._build_llm_prompt(session, user_text),
-                next_stage=session.stage,
+                next_stage=next_field or session.stage,
                 intent="customer_question",
             )
 
