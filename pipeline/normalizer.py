@@ -25,6 +25,8 @@ from dataclasses import dataclass, field
 from typing import Optional
 import structlog
 
+from pipeline.number_parser import parse_indian_amount
+
 log = structlog.get_logger(__name__)
 
 
