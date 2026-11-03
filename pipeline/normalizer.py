@@ -239,7 +239,7 @@ class Normalizer:
         if any(token in lower for token in ("వెంటనే", "ఇప్పుడే", "immediately", "right away", "as soon as possible")):
             return "immediate"
         telugu_months = {
-            "ఒక నెలలో": 1, "నెలలోపు": 1, "రెండు నెలల్లో": 2,
+            "ఒక నెలలో": 1, "నెలలోపు": 1, "వచ్చే నెల": 1, "తర్వాత నెలలో": 1, "రెండు నెలల్లో": 2,
             "మూడు నెలల్లో": 3, "ఆరు నెలల్లో": 6, "ఆరు నెలలలో": 6,
             "ఒక సంవత్సరంలో": 12, "సంవత్సరం లోపు": 12,
         }
@@ -258,7 +258,7 @@ class Normalizer:
         return None
 
     def _detect_opt_out(self, text: str) -> Optional[bool]:
-        """Detects if caller said 'not interested', 'stop calling', or 'వద్దు'."""
+        """Detects explicit contact-stop or disinterest phrases; bare refusal is not opt-out."""
         lower = text.lower()
         for token in _OPT_OUT_TOKENS:
             if token in lower:
