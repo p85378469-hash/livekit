@@ -129,7 +129,7 @@ def test_location_alias_to_canonical(norm, text, expected_location):
 @pytest.mark.parametrize("text", [
     "not interested",
     "stop calling me",
-    "వద్దు",
+    "కాల్ చేయకండి",
     "do not call",
     "unsubscribe",
 ])
@@ -231,3 +231,9 @@ def test_ambiguous_or_range_budget_is_not_guessed(norm, text):
     _, normalized = norm.process(text)
     result = norm.extract(normalized)
     assert result.budget_rupees is None
+
+
+def test_bare_no_is_not_global_opt_out(norm):
+    _, normalized = norm.process("వద్దు")
+    result = norm.extract(normalized)
+    assert result.opted_out is None
