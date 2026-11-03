@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 from dataclasses import dataclass
 from typing import Any, Optional
-from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 import structlog
@@ -147,14 +147,22 @@ class JevDecisionClient:
             raise ValueError(f"Jev returned an unsupported intent: {intent!r}")
 
         confidence_value = answer.get("confidence")
-        confidence = float(confidence_value) if confidence_value is not None else None
-        raw_probabilities = answer.get("probabilities") or {}
+        if confidence_value is None:
+            raise ValueError("Jev choice answer is missing confidence")
+        confidence = float(confidence_value)
+        if not math.isfinite(confidence) or not 0.0 <= confidence <= 1.0:
+            raise ValueError("Jev confidence must be a finite probability between 0 and 1")
+        raw_probabilities = answer.get("probabilities")
+        if not isinstance(raw_probabilities, dict) or not raw_probabilities:
+            raise ValueError("Jev choice answer is missing probabilities")
         if not isinstance(raw_probabilities, dict):
             raise ValueError("Jev probabilities must be an object")
         probabilities = {
             str(key): float(value)
             for key, value in raw_probabilities.items()
         }
+        if any(not math.isfinite(value) or not 0.0 <= value <= 1.0 for value in probabilities.values()):
+            raise ValueError("Jev probabilities must be finite values between 0 and 1")
         model = str(response.get("model") or DEFAULT_MODEL)
         return JevDecision(
             intent=intent,
