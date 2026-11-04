@@ -474,28 +474,55 @@ async def entrypoint(ctx: JobContext) -> None:
 
     @session_voice.on("metrics_collected")
     def on_metrics_collected(ev):
-        """Capture LLM and TTS latency milestones (T3 and T4) using true event timestamps."""
+        """
+        Log provider-reported durations directly.
+
+        LiveKit's LLMMetrics.ttft/duration and TTSMetrics.ttfb/duration are
+        durations in seconds. Do not reconstruct request-start timestamps from
+        timestamp - duration: the metrics model alone does not define timestamp
+        semantics. Keep provider request IDs and speech IDs so requests can be
+        traced without assigning a late metrics event to whichever turn happens
+        to be active when the event is delivered.
+        """
         m = getattr(ev, "metrics", ev)
         from livekit.agents.metrics import LLMMetrics, TTSMetrics
+
         if isinstance(m, LLMMetrics):
-            start_ts = m.timestamp - m.duration if m.duration else m.timestamp
-            first_token_ts_ms = (start_ts + m.ttft) * 1000 if m.ttft > 0 else start_ts * 1000
-            latency.record(Stage.LLM_FIRST_TOKEN, first_token_ts_ms)
             log.info(
-                "latency.llm_metrics",
-                ttft_ms=round(m.ttft * 1000, 1) if m.ttft > 0 else None,
-                duration_ms=round(m.duration * 1000, 1) if m.duration else None,
+                "latency.llm_request_metrics",
+                request_id=m.request_id,
+                speech_id=m.speech_id,
+                metric_timestamp=m.timestamp,
+                active_turn_id_at_event=session.current_turn_id,
+                ttft_ms=round(m.ttft * 1000, 1) if m.ttft >= 0 else None,
+                duration_ms=round(m.duration * 1000, 1),
+                tokens_per_second=round(m.tokens_per_second, 2),
+                prompt_tokens=m.prompt_tokens,
+                completion_tokens=m.completion_tokens,
                 total_tokens=m.total_tokens,
+                cancelled=m.cancelled,
+                label=m.label,
             )
         elif isinstance(m, TTSMetrics):
-            start_ts = m.timestamp - m.duration if m.duration else m.timestamp
-            first_audio_ts_ms = (start_ts + m.ttfb) * 1000 if m.ttfb > 0 else start_ts * 1000
-            latency.record(Stage.TTS_FIRST_AUDIO, first_audio_ts_ms)
             log.info(
-                "latency.tts_metrics",
-                ttfb_ms=round(m.ttfb * 1000, 1) if m.ttfb > 0 else None,
-                duration_ms=round(m.duration * 1000, 1) if m.duration else None,
+                "latency.tts_request_metrics",
+                request_id=m.request_id,
+                speech_id=m.speech_id,
+                metric_timestamp=m.timestamp,
+                active_turn_id_at_event=session.current_turn_id,
+                ttfb_ms=round(m.ttfb * 1000, 1) if m.ttfb >= 0 else None,
+                duration_ms=round(m.duration * 1000, 1),
+                audio_duration_ms=round(m.audio_duration * 1000, 1),
                 characters=m.characters_count,
+                cancelled=m.cancelled,
+                streamed=m.streamed,
+                label=m.label,
+            )
+        else:
+            log.debug(
+                "latency.metrics_event_unhandled",
+                event_type=type(ev).__name__,
+                metrics_type=type(m).__name__,
             )
 
     # 4c. Setup disconnect and close event handlers BEFORE greeting to guard against early disconnect
