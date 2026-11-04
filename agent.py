@@ -49,7 +49,6 @@ from core.session import ConversationSession
 from pipeline.normalizer import Normalizer
 from pipeline.policy import PolicySelector, ResponseMode
 from pipeline.context import ContextBuilder
-from pipeline.jev_decision import JevDecisionClient, build_jev_state
 from telemetry.latency import LatencyTracker, Stage
 
 # Configure structured logging for clean terminal output
@@ -88,7 +87,6 @@ class TeluguRealEstateAgent(Agent):
         context_builder: ContextBuilder,
         session_id: str,
         agent_session: AgentSession,
-        jev_client: Optional[JevDecisionClient] = None,
     ) -> None:
         system_instructions = context_builder.build_system_prompt()
         super().__init__(instructions=system_instructions)
@@ -100,7 +98,6 @@ class TeluguRealEstateAgent(Agent):
         self._context_builder = context_builder
         self._session_id = session_id
         self._agent_session = agent_session
-        self._jev_client = jev_client
         self._processed_message_ids: deque[str] = deque(maxlen=128)
         self._active_response_turn_id: int = 0
 
@@ -187,30 +184,6 @@ class TeluguRealEstateAgent(Agent):
         # 2. Extract facts (Location, Budget, BHK)
         extraction = self._normalizer.extract(normalized_transcript)
 
-        # 3. Experimental Jev intent classification. Disabled by default; on any
-        # timeout/API/parse/low-confidence failure, the existing Python policy runs.
-        jev_intent = None
-        if self._jev_client is not None and self._jev_client.enabled:
-            jev_started = time.perf_counter()
-            jev_result = await self._jev_client.classify(
-                build_jev_state(self._session, raw_transcript)
-            )
-            log.info(
-                "jev.latency",
-                duration_ms=round((time.perf_counter() - jev_started) * 1000, 1),
-                turn_id=current_turn_id,
-                used_fallback=jev_result is None,
-            )
-            if jev_result is not None:
-                jev_intent = jev_result.intent
-                log.info(
-                    "pipeline.jev_intent_received",
-                    intent=jev_result.intent,
-                    confidence=jev_result.confidence,
-                    model=jev_result.model,
-                    turn_id=current_turn_id,
-                )
-
         # Python remains the policy/state owner. Jev supplies only an advisory intent label.
         decision = self._policy.select(self._session, extraction, intent_override=jev_intent)
         self._latency.record(Stage.PYTHON_COMPLETE)
@@ -278,6 +251,18 @@ class TeluguRealEstateAgent(Agent):
             log.error("context.instructions_update_error", error=str(e), exc_info=True)
             raise
 
+        # Keep the provider prompt bounded. ChatContext.truncate preserves the
+        # leading system/developer instructions and removes old conversation items.
+        before_items = len(turn_ctx.items)
+        turn_ctx.truncate(max_items=12)
+        log.info(
+            "context.prompt_window_applied",
+            turn_id=current_turn_id,
+            items_before=before_items,
+            items_after=len(turn_ctx.items),
+            retained_conversation_items=max(0, len(turn_ctx.items) - 1),
+        )
+        active_playback_turn_id["value"] = current_turn_id
         log.info("pipeline.llm_response_delegated", turn_id=current_turn_id)
 
 
@@ -328,13 +313,6 @@ async def entrypoint(ctx: JobContext) -> None:
     normalizer = Normalizer()
     policy = PolicySelector()
     context_builder = ContextBuilder()
-    jev_client = JevDecisionClient()
-    log.info(
-        "jev.experiment_configuration",
-        enabled=jev_client.enabled,
-        model=jev_client.model,
-        timeout_seconds=jev_client.timeout_seconds,
-    )
 
     # 3. Initialize Provider Plugins (LiveKit 1.x)
     # STT Provider Selection (Soniox as primary Telugu engine; Whisper when explicitly configured)
@@ -410,7 +388,6 @@ async def entrypoint(ctx: JobContext) -> None:
         context_builder=context_builder,
         session_id=session_id,
         agent_session=session_voice,
-        jev_client=jev_client,
     )
 
     # 4b. Wire Phase 1 documented LiveKit session events (Transcript, Latency, & State)
@@ -444,6 +421,7 @@ async def entrypoint(ctx: JobContext) -> None:
             if latency.get_turn(pending_turn_id) is None:
                 latency.new_turn(pending_turn_id)
             latency.record(Stage.TURN_END, ts_ms)
+            turn_end_monotonic[pending_turn_id] = time.perf_counter()
         elif ev.new_state == "speaking" and session_voice.agent_state in ("speaking", "thinking"):
             log.info("interruption.detected", turn_id=session.current_turn_id, agent_state=session_voice.agent_state)
             if latency.get_turn(pending_turn_id) is None:
@@ -466,64 +444,72 @@ async def entrypoint(ctx: JobContext) -> None:
         ts_ms = (ev.created_at * 1000) if hasattr(ev, "created_at") and ev.created_at else time.time() * 1000
         if ev.new_state == "speaking":
             latency.record(Stage.PLAYBACK_FIRST_AUDIO, ts_ms)
+            turn_id = active_playback_turn_id["value"]
+            started = turn_end_monotonic.pop(turn_id, None)
+            if started is not None:
+                log.info(
+                    "latency.overall_turn",
+                    turn_id=turn_id,
+                    caller_turn_end_to_first_playback_ms=round((time.perf_counter() - started) * 1000, 1),
+                )
         elif ev.old_state == "speaking" and ev.new_state != "speaking":
             # Agent finished speaking its turn response
             latency.record(Stage.PLAYBACK_COMPLETE, ts_ms)
             if agent._active_response_turn_id > 0:
                 latency.log_turn_report(turn_id=agent._active_response_turn_id)
 
-    @session_voice.on("metrics_collected")
-    def on_metrics_collected(ev):
-        """
-        Log provider-reported durations directly.
-
-        LiveKit's LLMMetrics.ttft/duration and TTSMetrics.ttfb/duration are
-        durations in seconds. Do not reconstruct request-start timestamps from
-        timestamp - duration: the metrics model alone does not define timestamp
-        semantics. Keep provider request IDs and speech IDs so requests can be
-        traced without assigning a late metrics event to whichever turn happens
-        to be active when the event is delivered.
-        """
+    # Provider-level metrics are the authoritative per-request LLM/TTS measurements.
+    # LiveKit documents metrics_collected on each plugin instance (not the deprecated
+    # session-level metrics event).
+    def on_llm_metrics_collected(ev):
         m = getattr(ev, "metrics", ev)
-        from livekit.agents.metrics import LLMMetrics, TTSMetrics
+        from livekit.agents.metrics import LLMMetrics
+        if not isinstance(m, LLMMetrics):
+            log.debug("latency.llm_metrics_unhandled", metrics_type=type(m).__name__)
+            return
+        log.info(
+            "latency.llm_request_metrics",
+            request_id=m.request_id,
+            speech_id=m.speech_id,
+            metric_timestamp=m.timestamp,
+            ttft_ms=round(m.ttft * 1000, 1) if m.ttft >= 0 else None,
+            duration_ms=round(m.duration * 1000, 1),
+            tokens_per_second=round(m.tokens_per_second, 2),
+            prompt_tokens=m.prompt_tokens,
+            prompt_cached_tokens=m.prompt_cached_tokens,
+            completion_tokens=m.completion_tokens,
+            total_tokens=m.total_tokens,
+            cancelled=m.cancelled,
+            label=m.label,
+            model=getattr(getattr(m, "metadata", None), "model_name", None),
+        )
 
-        if isinstance(m, LLMMetrics):
-            log.info(
-                "latency.llm_request_metrics",
-                request_id=m.request_id,
-                speech_id=m.speech_id,
-                metric_timestamp=m.timestamp,
-                active_turn_id_at_event=session.current_turn_id,
-                ttft_ms=round(m.ttft * 1000, 1) if m.ttft >= 0 else None,
-                duration_ms=round(m.duration * 1000, 1),
-                tokens_per_second=round(m.tokens_per_second, 2),
-                prompt_tokens=m.prompt_tokens,
-                completion_tokens=m.completion_tokens,
-                total_tokens=m.total_tokens,
-                cancelled=m.cancelled,
-                label=m.label,
-            )
-        elif isinstance(m, TTSMetrics):
-            log.info(
-                "latency.tts_request_metrics",
-                request_id=m.request_id,
-                speech_id=m.speech_id,
-                metric_timestamp=m.timestamp,
-                active_turn_id_at_event=session.current_turn_id,
-                ttfb_ms=round(m.ttfb * 1000, 1) if m.ttfb >= 0 else None,
-                duration_ms=round(m.duration * 1000, 1),
-                audio_duration_ms=round(m.audio_duration * 1000, 1),
-                characters=m.characters_count,
-                cancelled=m.cancelled,
-                streamed=m.streamed,
-                label=m.label,
-            )
-        else:
-            log.debug(
-                "latency.metrics_event_unhandled",
-                event_type=type(ev).__name__,
-                metrics_type=type(m).__name__,
-            )
+    def on_tts_metrics_collected(ev):
+        m = getattr(ev, "metrics", ev)
+        from livekit.agents.metrics import TTSMetrics
+        if not isinstance(m, TTSMetrics):
+            log.debug("latency.tts_metrics_unhandled", metrics_type=type(m).__name__)
+            return
+        log.info(
+            "latency.tts_request_metrics",
+            request_id=m.request_id,
+            speech_id=m.speech_id,
+            ttfb_ms=round(m.ttfb * 1000, 1) if m.ttfb >= 0 else None,
+            duration_ms=round(m.duration * 1000, 1),
+            audio_duration_ms=round(m.audio_duration * 1000, 1),
+            characters=m.characters_count,
+            cancelled=m.cancelled,
+            streamed=m.streamed,
+            label=m.label,
+        )
+
+    llm_provider.on("metrics_collected", on_llm_metrics_collected)
+    tts_provider.on("metrics_collected", on_tts_metrics_collected)
+
+    # Overall caller-turn-end -> first agent playback-start latency.
+    # Use monotonic time and explicit turn IDs; never subtract wall-clock timestamps.
+    turn_end_monotonic: dict[int, float] = {}
+    active_playback_turn_id = {"value": 0}
 
     # 4c. Setup disconnect and close event handlers BEFORE greeting to guard against early disconnect
     stop_event = asyncio.Event()
