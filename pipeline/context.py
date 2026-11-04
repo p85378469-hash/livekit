@@ -80,8 +80,9 @@ class ContextBuilder:
             {"role": "system", "content": self._build_system_with_facts(session)},
         ]
 
-        # Messages 2+: What the caller said in recent turns
-        for turn in session.recent_turns:
+        # Only the latest caller turn is sent; structured facts carry older information.
+        latest_turns = session.recent_turns[-1:]
+        for turn in latest_turns:
             messages.append({
                 "role": "user",
                 "content": turn.normalized_transcript,
@@ -89,7 +90,7 @@ class ContextBuilder:
 
         log.debug(
             "context.built",
-            turn_count=len(session.recent_turns),
+            turn_count=len(latest_turns),
             session_id=session.session_id,
         )
         return messages
@@ -130,3 +131,12 @@ class ContextBuilder:
             stage_section += f"\nNext question to ask: {ctx['next_missing_field']}"
 
         return SYSTEM_PROMPT + facts_section + stage_section
+
+
+def retain_latest_user_turn(items: list[Any], latest_message: Any) -> list[Any]:
+    """Keep instruction messages and only the current caller message for the LLM."""
+    instructions = [
+        item for item in items
+        if getattr(item, "role", None) in {"system", "developer"}
+    ]
+    return instructions + [latest_message]
