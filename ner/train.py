@@ -102,7 +102,8 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
 
     raw = load_telugu_dataset()
-    mapped = raw.map(add_location_labels)
+    source_columns = raw["train"].column_names
+    mapped = raw.map(add_location_labels, remove_columns=source_columns)
     train_data = mapped["train"]
     if args.synthetic_jsonl:
         synthetic = load_synthetic_jsonl(args.synthetic_jsonl)
