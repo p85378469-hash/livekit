@@ -159,6 +159,7 @@ class TeluguRealEstateAgent(Agent):
         # Advance the session turn ID exactly once per confirmed turn
         current_turn_id = self._session.advance_turn()
         self._active_response_turn_id = current_turn_id
+        active_playback_turn_id["value"] = current_turn_id
         # Ensure latency tracker is tracking current_turn_id (capturing T0/T1 already recorded on pending turn)
         if self._latency.get_turn(current_turn_id) is None:
             self._latency.new_turn(current_turn_id)
