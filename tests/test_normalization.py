@@ -249,3 +249,48 @@ def test_bare_no_is_not_global_opt_out(norm):
 def test_explicit_purchase_timeline_extraction(norm, text, expected):
     _, normalized = norm.process(text)
     assert norm.extract(normalized).timeline == expected
+
+
+# ── Real-call timeline regression cases ─────────────────────────────
+
+@pytest.mark.parametrize("text,expected", [
+    ("టుమారో", "tomorrow"),
+    ("టుమారో?", "tomorrow"),
+    ("రేపు", "tomorrow"),
+    ("ఈరోజే", "today"),
+    ("today", "today"),
+    ("ఈ రోజు", "today"),
+    ("day after tomorrow", "day_after_tomorrow"),
+    ("day-after-tomorrow", "day_after_tomorrow"),
+    ("dayaftertomorrow", "day_after_tomorrow"),
+    ("ఎల్లుండి", "day_after_tomorrow"),
+    ("ఎల్లుండికి", "day_after_tomorrow"),
+    ("మర్నాడు", "day_after_tomorrow"),
+    ("మర్నాటికి", "day_after_tomorrow"),
+    ("తదుపరి వారం లోపు", "next_week"),
+    ("తదుపరి వారం లోపు అని", "next_week"),
+    ("చెప్తున్నాను కదా, తదుపరి వారం లోపు అని", "next_week"),
+    ("వచ్చే వారం లోపు", "next_week"),
+    ("నెక్స్ట్ వీక్", "next_week"),
+    ("next week", "next_week"),
+    ("ఈ వారం లోపు", "this_week"),
+    ("this week", "this_week"),
+    ("వన్ మంత్ లోపు", "1_months"),
+    ("within one month", "1_months"),
+])
+def test_real_call_timeline_variations(norm, text, expected):
+    _, normalized = norm.process(text)
+    assert norm.extract(normalized).timeline == expected
+
+
+@pytest.mark.parametrize("text", [
+    "90 టు 60, 90 టు 80 లాక్స్",
+    "50 టు 60 లక్షలు",
+    "50 టూ 60 లాక్స్",
+    "50 నుంచి 60 లక్షలు",
+    "50 to 60 lakhs",
+    "fifty to sixty lakhs",
+])
+def test_spoken_budget_ranges_are_not_guessed(norm, text):
+    _, normalized = norm.process(text)
+    assert norm.extract(normalized).budget_rupees is None

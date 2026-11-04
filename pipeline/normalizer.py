@@ -287,27 +287,61 @@ class Normalizer:
         return None
 
     def _extract_timeline(self, text: str) -> Optional[str]:
-        """Extract only explicit purchase-time expressions; do not infer vague intent."""
-        lower = text.lower()
-        if any(token in lower for token in ("వెంటనే", "ఇప్పుడే", "immediately", "right away", "as soon as possible")):
+        """Extract explicit purchase timelines from Telugu, English, and mixed speech."""
+        lower = re.sub(r"\s+", " ", text.lower()).strip()
+
+        if any(p in lower for p in (
+            "వెంటనే", "ఇప్పుడే", "immediately", "right away", "as soon as possible",
+        )):
             return "immediate"
+        if any(p in lower for p in ("ఈరోజే", "ఈ రోజు", "ఈరోజు", "today")):
+            return "today"
+        # Check the longer relative date before tomorrow so day-after-tomorrow
+        # phrases are never collapsed into the tomorrow category.
+        if any(p in lower for p in (
+            "day after tomorrow", "day-after-tomorrow", "dayaftertomorrow",
+            "ఎల్లుండి", "ఎల్లుండికి", "మర్నాడు", "మర్నాటికి",
+        )):
+            return "day_after_tomorrow"
+        if any(p in lower for p in ("రేపు", "రేపటికి", "టుమారో", "tomorrow")):
+            return "tomorrow"
+
+        if any(p in lower for p in (
+            "తదుపరి వారం", "వచ్చే వారం", "నెక్స్ట్ వీక్", "next week",
+            "following week", "వారం తర్వాత",
+        )):
+            return "next_week"
+        if any(p in lower for p in ("ఈ వారం", "ఈ వారంలో", "ఈ వారము", "this week")):
+            return "this_week"
+
+        if any(p in lower for p in (
+            "ఒక నెలలోపు", "నెలలోపు", "ఒక నెలలో", "వన్ మంత్ లోపు",
+            "వన్ మంత్", "one month", "within a month", "within one month",
+            "in a month", "in one month",
+        )):
+            return "1_months"
+
         telugu_months = {
-            "ఒక నెలలో": 1, "నెలలోపు": 1, "వచ్చే నెల": 1, "తర్వాత నెలలో": 1, "రెండు నెలల్లో": 2,
-            "మూడు నెలల్లో": 3, "ఆరు నెలల్లో": 6, "ఆరు నెలలలో": 6,
+            "రెండు నెలల్లో": 2, "రెండు నెలలలో": 2,
+            "మూడు నెలల్లో": 3, "మూడు నెలలలో": 3,
+            "ఆరు నెలల్లో": 6, "ఆరు నెలలలో": 6,
             "ఒక సంవత్సరంలో": 12, "సంవత్సరం లోపు": 12,
         }
         for phrase, months in telugu_months.items():
             if phrase in lower:
                 return f"{months}_months"
-        match = re.search(r"(?<!\d)(\d{1,2})\s*(months?|నెలల్లో|నెలలు|నెలలో)", lower)
+
+        match = re.search(r"(?<!\d)(\d{1,2})\s*(months?|నెలల్లో|నెలలు|నెలలో|నెలలలో)", lower)
         if match:
             months = int(match.group(1))
             if 1 <= months <= 36:
                 return f"{months}_months"
+
         english_words = {"one": 1, "two": 2, "three": 3, "six": 6, "twelve": 12}
         for word, months in english_words.items():
             if re.search(rf"\b{word}\s+months?\b", lower):
                 return f"{months}_months"
+
         return None
 
     def _detect_opt_out(self, text: str) -> Optional[bool]:
