@@ -49,7 +49,6 @@ from core.session import ConversationSession
 from pipeline.normalizer import Normalizer
 from pipeline.policy import PolicySelector, ResponseMode
 from pipeline.context import ContextBuilder, retain_latest_user_turn
-from pipeline.jev_location import JevLocationClient, build_jev_location_state
 from telemetry.latency import LatencyTracker, Stage
 
 # Configure structured logging for clean terminal output
@@ -88,7 +87,6 @@ class TeluguRealEstateAgent(Agent):
         context_builder: ContextBuilder,
         session_id: str,
         agent_session: AgentSession,
-        jev_location_client: Optional[JevLocationClient] = None,
     ) -> None:
         system_instructions = context_builder.build_system_prompt()
         super().__init__(instructions=system_instructions)
@@ -100,7 +98,6 @@ class TeluguRealEstateAgent(Agent):
         self._context_builder = context_builder
         self._session_id = session_id
         self._agent_session = agent_session
-        self._jev_location_client = jev_location_client
         self._processed_message_ids: deque[str] = deque(maxlen=128)
         self._active_response_turn_id: int = 0
         # Shared turn ID used by the agent method and entrypoint event handlers.
@@ -187,39 +184,11 @@ class TeluguRealEstateAgent(Agent):
         # Update new_message content with normalized Telugu text
         new_message.content = [normalized_transcript]
 
-        # 2. Extract deterministic facts. Location is special: Jev is consulted
-        # only while location is the pending qualification field.
+        # 2. Extract deterministic facts. No secondary Jev request is made.
+        # The main LLM remains the conversational response generator; Python
+        # keeps deterministic extraction and session-state ownership.
         extraction = self._normalizer.extract(normalized_transcript)
-        jev_intent = None
-
-        if self._session.pending_field == "location":
-            jev_result = None
-            if self._jev_location_client is not None:
-                jev_result = await self._jev_location_client.classify(
-                    build_jev_location_state(raw_transcript)
-                )
-
-            # Advance only when Jev confirms a location AND the existing normalizer
-            # can produce a storable canonical value. Otherwise let the main LLM
-            # handle the caller's question/unclear response naturally.
-            if jev_result is not None and jev_result.status == "provided" and extraction.location:
-                log.info(
-                    "pipeline.location_answer_confirmed",
-                    location=extraction.location,
-                    jev_confidence=jev_result.confidence,
-                    model=jev_result.model,
-                )
-            else:
-                extraction.location = None
-                jev_intent = "question"
-                log.info(
-                    "pipeline.location_not_confirmed",
-                    jev_status=jev_result.status if jev_result is not None else "unavailable_or_uncertain",
-                    action="delegate_to_main_llm",
-                )
-
-        # Python remains the policy/state owner. Jev only gates location presence.
-        decision = self._policy.select(self._session, extraction, intent_override=jev_intent)
+        decision = self._policy.select(self._session, extraction)
         self._latency.record(Stage.PYTHON_COMPLETE)
 
         log.info(
@@ -347,14 +316,6 @@ async def entrypoint(ctx: JobContext) -> None:
     normalizer = Normalizer()
     policy = PolicySelector()
     context_builder = ContextBuilder()
-    jev_location_client = JevLocationClient()
-    log.info(
-        "jev.location_gate_configuration",
-        enabled=jev_location_client.enabled,
-        model=jev_location_client.model,
-        timeout_seconds=jev_location_client.timeout_seconds,
-    )
-
     # 3. Initialize Provider Plugins (LiveKit 1.x)
     # STT Provider Selection (Soniox as primary Telugu engine; Whisper when explicitly configured)
     stt_provider_choice = os.environ.get("STT_PROVIDER", "").strip().lower()
@@ -429,7 +390,6 @@ async def entrypoint(ctx: JobContext) -> None:
         context_builder=context_builder,
         session_id=session_id,
         agent_session=session_voice,
-        jev_location_client=jev_location_client,
     )
 
     # 4b. Wire Phase 1 documented LiveKit session events (Transcript, Latency, & State)
