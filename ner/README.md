@@ -58,7 +58,21 @@ Output includes extracted spans and model confidence. Confidence is not calibrat
 
 ## Tanglish / conversational data
 
-The base dataset is Telugu-script text, not a representative Tanglish voice corpus. Do not fabricate a Tanglish score from Telugu-script results. Add reviewed conversational examples as JSONL with one record per sentence:
+The base dataset is Telugu-script text, not a representative Tanglish voice corpus. Do not fabricate a Tanglish score from Telugu-script results. To generate candidate training rows from a small CSV of verified locality names:
+
+CSV format:
+```csv
+telugu,romanized
+విజయవాడ,Vijayawada
+మంగళగిరి,Mangalagiri
+```
+
+Generate candidates (training-only):
+```powershell
+python -m ner.generate_conversational --input-csv data/localities.csv --output-jsonl data/reviewed_tanglish_train.jsonl
+```
+
+The script writes BIO tags around the inserted location span. Review every generated row and correct the sentence if it is unnatural. These rows are augmentation only; they do not count as independent evidence of accuracy. Add reviewed conversational examples as JSONL with one record per sentence:
 
 ```json
 {"tokens":["Nenu","Vijayawada","lo","illu","konali"],"location_tags":[0,1,0,0,0]}
