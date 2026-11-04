@@ -48,7 +48,7 @@ from livekit.plugins import cartesia, openai, silero, soniox  # soniox kept for 
 from core.session import ConversationSession
 from pipeline.normalizer import Normalizer
 from pipeline.policy import PolicySelector, ResponseMode
-from pipeline.context import ContextBuilder
+from pipeline.context import ContextBuilder, retain_latest_user_turn
 from pipeline.jev_location import JevLocationClient, build_jev_location_state
 from telemetry.latency import LatencyTracker, Stage
 
@@ -194,7 +194,7 @@ class TeluguRealEstateAgent(Agent):
             jev_result = None
             if self._jev_location_client is not None:
                 jev_result = await self._jev_location_client.classify(
-                    build_jev_location_state(self._session, raw_transcript)
+                    build_jev_location_state(raw_transcript)
                 )
 
             # Advance only when Jev confirms a location AND the existing normalizer
@@ -283,16 +283,16 @@ class TeluguRealEstateAgent(Agent):
             log.error("context.instructions_update_error", error=str(e), exc_info=True)
             raise
 
-        # Keep the provider prompt bounded. ChatContext.truncate preserves the
-        # leading system/developer instructions and removes old conversation items.
+        # Facts live in the system prompt; send no earlier chat history to the LLM.
+        # Keep system/developer instructions and exactly the current caller message.
         before_items = len(turn_ctx.items)
-        turn_ctx.truncate(max_items=12)
+        turn_ctx.items = retain_latest_user_turn(turn_ctx.items, new_message)
         log.info(
-            "context.prompt_window_applied",
+            "context.latest_turn_only",
             turn_id=current_turn_id,
             items_before=before_items,
             items_after=len(turn_ctx.items),
-            retained_conversation_items=max(0, len(turn_ctx.items) - 1),
+            retained_conversation_items=1,
         )
         active_playback_turn_id["value"] = current_turn_id
         log.info("pipeline.llm_response_delegated", turn_id=current_turn_id)
