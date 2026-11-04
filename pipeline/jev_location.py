@@ -134,21 +134,6 @@ class JevLocationClient:
         )
 
 
-def build_jev_location_state(session: Any, latest_transcript: str) -> dict[str, Any]:
-    """Provide the pending field and recent caller context, without asking Jev to store facts."""
-    return {
-        "task": "Check whether the caller has answered the pending location question.",
-        "pending_qualification_field": session.pending_field or session.next_missing_field,
-        "current_stage": session.stage,
-        "known_customer_facts": session.to_context_dict().get("facts", {}),
-        "recent_caller_turns": [
-            {"role": "caller", "text": turn.raw_transcript}
-            for turn in session.recent_turns[-4:-1]
-        ],
-        "latest_caller_utterance": latest_transcript,
-        "rules": [
-            "Classify location presence only; do not invent or normalize a location.",
-            "A location mentioned only as part of a question is not a supplied preference.",
-            "When uncertain, return unclear.",
-        ],
-    }
+def build_jev_location_state(latest_transcript: str) -> dict[str, Any]:
+    """Jev receives only the latest caller answer, never session facts or history."""
+    return {"latest_caller_utterance": latest_transcript}
