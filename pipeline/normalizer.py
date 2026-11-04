@@ -296,6 +296,13 @@ class Normalizer:
             return "immediate"
         if any(p in lower for p in ("ఈరోజే", "ఈ రోజు", "ఈరోజు", "today")):
             return "today"
+        # Check the longer relative date before tomorrow so day-after-tomorrow
+        # phrases are never collapsed into the tomorrow category.
+        if any(p in lower for p in (
+            "day after tomorrow", "day-after-tomorrow", "dayaftertomorrow",
+            "ఎల్లుండి", "ఎల్లుండికి", "మర్నాడు", "మర్నాటికి",
+        )):
+            return "day_after_tomorrow"
         if any(p in lower for p in ("రేపు", "రేపటికి", "టుమారో", "tomorrow")):
             return "tomorrow"
 
