@@ -1,0 +1,7 @@
+# Isolated NER training environment; do not add these to the voice-agent runtime.
+torch>=2.2
+transformers>=4.44,<5
+datasets>=2.20
+seqeval>=1.2.2
+accelerate>=0.33
+scikit-learn>=1.4
