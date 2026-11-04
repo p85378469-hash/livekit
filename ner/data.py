@@ -58,4 +58,6 @@ def load_synthetic_jsonl(path: str):
             raise ValueError("Synthetic row has different token and tag counts")
         if any(int(tag) not in (0, 1, 2) for tag in row["location_tags"]):
             raise ValueError("Synthetic tags must use O=0, B-LOC=1, I-LOC=2")
-    return extra
+    keep = {"tokens", "location_tags"}
+    drop = [column for column in extra.column_names if column not in keep]
+    return extra.remove_columns(drop)
