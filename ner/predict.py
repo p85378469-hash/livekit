@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 
 import torch
 from transformers import AutoModelForTokenClassification, AutoTokenizer
@@ -23,57 +22,55 @@ class TeluguLocationNER:
         words = text.split()
         if not words:
             return []
-        inputs = self.tokenizer(
-            words, is_split_into_words=True, return_tensors="pt",
-            truncation=True, max_length=160,
+        encoded = self.tokenizer(
+            words,
+            is_split_into_words=True,
+            return_tensors="pt",
+            truncation=True,
+            max_length=160,
         )
-        word_ids = inputs.word_ids(batch_index=0)
-        inputs = {k: v.to(self.device) for k, v in inputs.items()}
-        logits = self.model(**inputs).logits[0]
-        probs = torch.softmax(logits, dim=-1)
+        word_ids = encoded.word_ids(batch_index=0)
+        model_inputs = {key: value.to(self.device) for key, value in encoded.items()}
+        probabilities = torch.softmax(self.model(**model_inputs).logits[0], dim=-1)
+
+        # Use only the first subword prediction for each original whitespace token.
         word_predictions = []
-        seen = set()
+        seen_word_ids = set()
         for token_index, word_id in enumerate(word_ids):
-            if word_id is None or word_id in seen:
+            if word_id is None or word_id in seen_word_ids:
                 continue
-            seen.add(word_id)
-            label_id = int(torch.argmax(probs[token_index]).item())
-            word_predictions.append((word_id, self.id2label[label_id], float(probs[token_index, label_id])))
+            seen_word_ids.add(word_id)
+            scores = probabilities[token_index]
+            label_id = int(torch.argmax(scores).item())
+            word_predictions.append(
+                (word_id, self.id2label[label_id], float(scores[label_id].item()))
+            )
+
         entities = []
-        current = []
-        scores = []
+        active_words: list[str] = []
+        active_scores: list[float] = []
+
         def flush():
-            if current:
+            if active_words:
                 entities.append({
-                    "text": " ".join(current),
-                    "confidence": round(sum(scores) / len(scores), 4),
+                    "text": " ".join(active_words),
+                    "confidence": round(sum(active_scores) / len(active_scores), 4),
                     "label": "LOC",
                 })
-                current.clear()
-                scores.clear()
-        for _, tag, score in word_predictions:
-            if tag == "B-LOC":
-                flush()
-                current.append(words[len(word_predictions[:len(entities)])] if False else "")
-                current[-1] = ""  # replaced below using the source word index
-        # Build spans directly with original word indices.
-        flush()
-        entities = []
-        active_words, active_scores = [], []
+                active_words.clear()
+                active_scores.clear()
+
         for word_id, tag, score in word_predictions:
             if tag == "B-LOC":
-                if active_words:
-                    entities.append({"text": " ".join(active_words), "confidence": round(sum(active_scores)/len(active_scores), 4), "label": "LOC"})
-                active_words, active_scores = [words[word_id]], [score]
+                flush()
+                active_words.append(words[word_id])
+                active_scores.append(score)
             elif tag == "I-LOC" and active_words:
                 active_words.append(words[word_id])
                 active_scores.append(score)
             else:
-                if active_words:
-                    entities.append({"text": " ".join(active_words), "confidence": round(sum(active_scores)/len(active_scores), 4), "label": "LOC"})
-                    active_words, active_scores = [], []
-        if active_words:
-            entities.append({"text": " ".join(active_words), "confidence": round(sum(active_scores)/len(active_scores), 4), "label": "LOC"})
+                flush()
+        flush()
         return entities
 
 
