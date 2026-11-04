@@ -64,7 +64,7 @@ class JevLocationClient:
                         "'Do you have properties in Vijayawada?') is NOT a provided answer. "
                         "Questions about available areas, requests for examples, uncertainty, "
                         "or unrelated replies are not provided. If the meaning is ambiguous, "
-                        "choose unclear. Use the conversation context and latest utterance."
+                        "choose unclear. Classify using only the latest caller utterance; no prior context is supplied."
                     ),
                     "criteria": {
                         "provided": "Caller clearly states one or more desired locations.",
