@@ -103,6 +103,8 @@ class TeluguRealEstateAgent(Agent):
         self._jev_location_client = jev_location_client
         self._processed_message_ids: deque[str] = deque(maxlen=128)
         self._active_response_turn_id: int = 0
+        # Shared turn ID used by the agent method and entrypoint event handlers.
+        self._active_playback_turn_id: dict[str, int] = {"value": 0}
 
     def invalidate_active_turn(self) -> None:
         """Invalidates in-flight response generation on genuine caller interruption."""
@@ -162,7 +164,7 @@ class TeluguRealEstateAgent(Agent):
         # Advance the session turn ID exactly once per confirmed turn
         current_turn_id = self._session.advance_turn()
         self._active_response_turn_id = current_turn_id
-        active_playback_turn_id["value"] = current_turn_id
+        self._active_playback_turn_id["value"] = current_turn_id
         # Ensure latency tracker is tracking current_turn_id (capturing T0/T1 already recorded on pending turn)
         if self._latency.get_turn(current_turn_id) is None:
             self._latency.new_turn(current_turn_id)
@@ -294,7 +296,7 @@ class TeluguRealEstateAgent(Agent):
             items_after=len(turn_ctx.items),
             retained_conversation_items=1,
         )
-        active_playback_turn_id["value"] = current_turn_id
+        self._active_playback_turn_id["value"] = current_turn_id
         log.info("pipeline.llm_response_delegated", turn_id=current_turn_id)
 
 
@@ -484,7 +486,7 @@ async def entrypoint(ctx: JobContext) -> None:
         ts_ms = (ev.created_at * 1000) if hasattr(ev, "created_at") and ev.created_at else time.time() * 1000
         if ev.new_state == "speaking":
             latency.record(Stage.PLAYBACK_FIRST_AUDIO, ts_ms)
-            turn_id = active_playback_turn_id["value"]
+            turn_id = agent._active_playback_turn_id["value"]
             started = turn_end_monotonic.pop(turn_id, None)
             if started is not None:
                 log.info(
@@ -549,7 +551,6 @@ async def entrypoint(ctx: JobContext) -> None:
     # Overall caller-turn-end -> first agent playback-start latency.
     # Use monotonic time and explicit turn IDs; never subtract wall-clock timestamps.
     turn_end_monotonic: dict[int, float] = {}
-    active_playback_turn_id = {"value": 0}
 
     # 4c. Setup disconnect and close event handlers BEFORE greeting to guard against early disconnect
     stop_event = asyncio.Event()
