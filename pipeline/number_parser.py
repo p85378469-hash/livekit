@@ -50,7 +50,13 @@ _CONNECTORS = {"and", "మరియు"}
 _FRACTION_WORDS = {"half": Decimal("0.5"), "అర": Decimal("0.5")}
 _COMPOUND_AMOUNT_VALUES = {"అరకోటి": 5_000_000, "అరలక్ష": 50_000}
 _TOKEN_RE = re.compile(r"\d+(?:,\d{2,3})*(?:\.\d+)?|[A-Za-z]+|[\u0C00-\u0C7F]+", re.UNICODE)
-_RANGE_RE = re.compile(r"\d\s*(?:-|–|to|నుంచి)\s*\d", re.IGNORECASE)
+_RANGE_RE = re.compile(
+    r"(?:\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|ఒకటి|ఒక|రెండు|మూడు|నాలుగు|ఐదు|ఆరు|ఏడు|ఎనిమిది|తొమ్మిది|పది|ఇరవై|ముప్పై|నలభై|యాభై|అరవై|డెబ్బై|ఎనభై|తొంభై)"
+    r"\s*(?:-|–|to|టు|టూ|నుంచి|నుండి)\s*"
+    r"(?:\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|ఒకటి|ఒక|రెండు|మూడు|నాలుగు|ఐదు|ఆరు|ఏడు|ఎనిమిది|తొమ్మిది|పది|ఇరవై|ముప్పై|నలభై|యాభై|అరవై|డెబ్బై|ఎనభై|తొంభై)"
+    r"\s*(?:thousand|thousands|k|lakh|lakhs|lac|lacs|crore|crores|వేలు|వేల|లక్ష|లక్షలు|లాక్స్|లాక్|కోటి|కోట్లు)",
+    re.IGNORECASE | re.UNICODE,
+)
 
 
 # ---------------------------------------------------------------------------
