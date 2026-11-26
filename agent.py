@@ -7,14 +7,10 @@
 #
 # 1. Welcomes caller with a clear Telugu greeting.
 # 2. Listens to caller using Soniox (Telugu Speech-To-Text).
-# 3. Intercepts speech before AI generation in on_user_turn_completed():
-#    - Advances session turn ID
-#    - Preserves exact raw Telugu transcript
-#    - Normalizes numbers (Lakhs, Crores, BHK)
-#    - Updates new_message content so Groq receives normalized text
-#    - Injects collected real-estate facts into system instructions
-#    - Distinguishes customer questions (Groq LLM) vs simple qualification (StopResponse)
-# 4. Speaks replies in realistic Telugu using Cartesia TTS (Sonic 3.5).
+# 3. Preserves each finalized transcript and lets ordinary turns go directly
+#    to the conversational LLM. Only explicit opt-out requests use a deterministic
+#    compliance response.
+# 4. Speaks replies in Telugu using Cartesia TTS (Sonic 3.5).
 # ==============================================================================
 
 from __future__ import annotations
@@ -43,7 +39,7 @@ from livekit.agents import (
 )
 from livekit.plugins import cartesia, openai, silero, soniox  # soniox kept for later
 
-# Internal Phase 1 modules (Normalizer, Policy, Session, Latency)
+# Internal modules (turn tracking, stable prompt, latency)
 from core.session import ConversationSession
 from pipeline.context import ContextBuilder
 from telemetry.latency import LatencyTracker, Stage
@@ -70,9 +66,8 @@ GREETING_TEXT = "నమస్కారం అండి! నేను మీ ర�
 
 class TeluguRealEstateAgent(Agent):
     """
-    LiveKit 1.x Voice Agent subclass.
-    Overrides `on_user_turn_completed` to run Telugu normalization, turn-tracking,
-    and policy selection BEFORE Groq LLM responds!
+    LiveKit 1.x voice agent. Ordinary finalized user turns are passed directly
+    to the configured LLM without Python extraction or conversational routing.
     """
 
     def __init__(
@@ -119,8 +114,8 @@ class TeluguRealEstateAgent(Agent):
     def _is_explicit_opt_out(text: str) -> bool:
         """Minimal deterministic safeguard for clear stop/opt-out requests."""
         lower = text.lower()
-        telugu_phrases = ("వద్దు", "కాల్ చేయవద్దు", "మళ్ళీ కాల్ చేయకండి", "ఆపండి")
-        english_phrases = ("stop calling", "do not call", "don't call", "unsubscribe", "not interested")
+        telugu_phrases = ("కాల్ చేయవద్దు", "మళ్ళీ కాల్ చేయకండి", "ఇకపై కాల్ చేయవద్దు", "నాకు ఆసక్తి లేదు")
+        english_phrases = ("stop calling", "do not call", "don't call", "unsubscribe", "remove me", "not interested")
         return any(token in lower for token in telugu_phrases + english_phrases)
 
     async def on_user_turn_completed(
