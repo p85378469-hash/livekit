@@ -113,7 +113,7 @@ class ContextBuilder:
         lines.append(f"Current qualification stage: {ctx['stage']}")
         if ctx["next_missing_field"]:
             lines.append(f"Next missing field: {ctx['next_missing_field']}")
-        return "\\n".join(lines)
+        return "\n".join(lines)
 
     def _build_system_with_facts(self, session: ConversationSession) -> str:
         """
