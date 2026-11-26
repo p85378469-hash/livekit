@@ -51,8 +51,22 @@ pip install -r requirements.txt
 
 ```bash
 cp .env.example .env
-# Fill in your API keys in .env
+# Set GROQ_API_KEY and the other provider keys in .env.
+# Never commit .env.
 ```
+
+### 3. Verify Groq prompt caching and latency
+
+```bash
+python scripts/test_groq_prompt_cache.py --runs 3
+```
+
+This sends sequential requests with an identical system-prompt prefix and reports
+cached input tokens, cache-hit rate, first output time, and total request latency.
+The first request is the cold baseline. If the production system prompt is below
+Groq's model-specific cache threshold, run `--synthetic-prefix` only to verify
+provider-side cache accounting. Do not pad the production prompt just to manufacture
+cache hits.
 
 ### 3. Prepare the greeting WAV
 
