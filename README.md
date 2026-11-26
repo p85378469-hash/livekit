@@ -1,7 +1,7 @@
 # Telugu Voice Agent — Phase 1
 
 > LiveKit + Soniox STT + Groq GPT-OSS 20B + Cartesia TTS  
-> Real-estate lead qualification in Telugu
+> Natural Telugu real-estate conversation (direct LLM routing)
 
 ---
 
@@ -82,7 +82,7 @@ ffmpeg -i your_greeting.mp3 -ar 16000 -ac 1 -sample_fmt s16 assets/greeting.wav
 pytest tests/ -v
 ```
 
-All 7 test checklist items from the master plan must pass before proceeding.
+The direct-LLM routing regression tests must pass before deployment.
 
 ### 6. Run the agent
 
@@ -111,16 +111,16 @@ Before moving to Phase 2, all of these must pass:
 | Rule | Enforced In |
 |---|---|
 | Partials never trigger pipeline | `turn_detector.py` |
-| Raw transcript is immutable | `normalizer.py` → `session.commit_turn()` |
+| Customer transcript is preserved unchanged | `agent.py` → `session.commit_turn()` |
 | Turn ID advances BEFORE pipeline starts | `turn_detector._emit_turn_complete()` |
 | Audio stops BEFORE LLM cancelled | `interruption.py` steps 3→4→5 |
 | WAV greeting uses NO LLM or TTS | `greeting.py` + `agent.py` |
 | Fillers are OFF until timing verified | `playback.play_filler()` (stubbed) |
-| All facts committed only after TURN_COMPLETE | `pipeline/policy.py` |
+| Ordinary finalized turns route directly to the LLM | `agent.py` |
 
 ---
 
-## What Is Deferred to Phase 2
+## Current conversation-routing scope\n\n- Every finalized ordinary customer turn is delegated directly to the configured LLM.\n- No Python fact extraction, normalization, qualification decision tree, or dynamic fact injection runs in the active turn path.\n- Explicit stop-calling requests remain a small deterministic compliance exception.\n- The legacy `pipeline/normalizer.py` and `pipeline/policy.py` files are not imported by the active agent. They are retained for now, not part of runtime behavior.\n\n## What Is Deferred to Phase 2
 
 - Telugu-aware pause classification (advanced turn tuning)
 - Backchannel/noise/filler ML classifier
