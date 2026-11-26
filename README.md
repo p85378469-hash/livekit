@@ -68,7 +68,7 @@ Groq's model-specific cache threshold, run `--synthetic-prefix` only to verify
 provider-side cache accounting. Do not pad the production prompt just to manufacture
 cache hits.
 
-### 3. Prepare the greeting WAV
+### 4. Prepare the greeting WAV
 
 ```bash
 mkdir assets
@@ -76,7 +76,7 @@ mkdir assets
 ffmpeg -i your_greeting.mp3 -ar 16000 -ac 1 -sample_fmt s16 assets/greeting.wav
 ```
 
-### 4. Run Phase 1 tests
+### 5. Run Phase 1 tests
 
 ```bash
 pytest tests/ -v
@@ -84,7 +84,7 @@ pytest tests/ -v
 
 All 7 test checklist items from the master plan must pass before proceeding.
 
-### 5. Run the agent
+### 6. Run the agent
 
 ```bash
 python agent.py start
