@@ -296,7 +296,7 @@ def test_validate_environment_checks(monkeypatch):
 
     # 1. Invalid provider raises ValueError
     monkeypatch.setenv("STT_PROVIDER", "invalid_stt")
-    monkeypatch.setenv("OPENROUTER_API_KEY", "dummy_llm")
+    monkeypatch.setenv("GROQ_API_KEY", "dummy_llm")
     monkeypatch.setenv("CARTESIA_API_KEY", "dummy_tts")
     with pytest.raises(ValueError, match="Invalid STT_PROVIDER"):
         validate_environment()
@@ -309,8 +309,8 @@ def test_validate_environment_checks(monkeypatch):
 
     # 3. Missing OpenRouter API key raises ValueError
     monkeypatch.setenv("CARTESIA_API_KEY", "dummy_tts")
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    with pytest.raises(ValueError, match="OPENROUTER_API_KEY is required"):
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    with pytest.raises(ValueError, match="GROQ_API_KEY is required"):
         validate_environment()
 
     # 4. Valid Whisper environment passes
@@ -345,10 +345,11 @@ async def test_system_prompt_updated_even_if_not_at_index_zero(agent, session, m
     # Conversational query will delegate to LLM mode (no StopResponse raised)
     await agent.on_user_turn_completed(chat_ctx, user_msg)
 
-    # Must find system message inserted
+    # The stable system prompt remains unchanged; per-turn facts are separate.
     sys_msgs = [item for item in chat_ctx.items if item.role == "system"]
-    assert len(sys_msgs) == 1
+    assert len(sys_msgs) == 2
     assert "Telugu-speaking real-estate" in sys_msgs[0].content[0]
+    assert "Current validated lead context" in sys_msgs[1].content[0]
 
 
 # ── Test 12: Bounded duplicate tracking ──────────────────────────────────────
