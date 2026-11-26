@@ -90,6 +90,31 @@ class ContextBuilder:
         )
         return messages
 
+    def build_dynamic_context(self, session: ConversationSession) -> str:
+        """
+        Returns changing, validated lead state separately from the stable system prompt.
+        Keep this message after the stable prompt/history so Groq can reuse the prefix.
+        """
+        ctx = session.to_context_dict()
+        facts = ctx["facts"]
+        collected = {k: v for k, v in facts.items() if v is not None}
+        missing = [k for k, v in facts.items() if v is None]
+
+        lines = [
+            "Current validated lead context:",
+            "Use these values as the current state; do not invent missing information.",
+        ]
+        if collected:
+            lines.append("Known facts:")
+            lines.extend(f"- {key}: {value}" for key, value in collected.items())
+        if missing:
+            lines.append("Unknown facts:")
+            lines.extend(f"- {field}" for field in missing)
+        lines.append(f"Current qualification stage: {ctx['stage']}")
+        if ctx["next_missing_field"]:
+            lines.append(f"Next missing field: {ctx['next_missing_field']}")
+        return "\\n".join(lines)
+
     def _build_system_with_facts(self, session: ConversationSession) -> str:
         """
         Appends the customer's known facts and what question is next
