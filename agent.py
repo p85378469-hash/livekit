@@ -7,17 +7,15 @@
 #
 # 1. Welcomes caller with a clear Telugu greeting.
 # 2. Listens to caller using Soniox (Telugu Speech-To-Text).
-# 3. Intercepts speech before AI generation in on_user_turn_completed():
-#    - Advances session turn ID
-#    - Preserves exact raw Telugu transcript
-#    - Normalizes numbers (Lakhs, Crores, BHK)
-#    - Updates new_message content so Groq receives normalized text
-#    - Injects collected real-estate facts into system instructions
-#    - Distinguishes customer questions (Groq LLM) vs simple qualification (StopResponse)
-# 4. Speaks replies in realistic Telugu using Cartesia TTS (Sonic 3.5).
+# 3. Preserves each finalized transcript and lets ordinary turns go directly
+#    to the conversational LLM. Only explicit opt-out requests use a deterministic
+#    compliance response.
+# 4. Speaks replies in Telugu using Cartesia TTS (Sonic 3.5).
 # ==============================================================================
 
 from __future__ import annotations
+
+from typing import Any
 
 import asyncio
 from collections import deque
@@ -43,10 +41,8 @@ from livekit.agents import (
 )
 from livekit.plugins import cartesia, openai, silero, soniox  # soniox kept for later
 
-# Internal Phase 1 modules (Normalizer, Policy, Session, Latency)
+# Internal modules (turn tracking, stable prompt, latency)
 from core.session import ConversationSession
-from pipeline.normalizer import Normalizer
-from pipeline.policy import PolicySelector, ResponseMode
 from pipeline.context import ContextBuilder
 from telemetry.latency import LatencyTracker, Stage
 
@@ -72,17 +68,14 @@ GREETING_TEXT = "నమస్కారం అండి! నేను మీ ర�
 
 class TeluguRealEstateAgent(Agent):
     """
-    LiveKit 1.x Voice Agent subclass.
-    Overrides `on_user_turn_completed` to run Telugu normalization, turn-tracking,
-    and policy selection BEFORE Groq LLM responds!
+    LiveKit 1.x voice agent. Ordinary finalized user turns are passed directly
+    to the configured LLM without Python extraction or conversational routing.
     """
 
     def __init__(
         self,
         session: ConversationSession,
         latency: LatencyTracker,
-        normalizer: Normalizer,
-        policy: PolicySelector,
         context_builder: ContextBuilder,
         session_id: str,
         agent_session: AgentSession,
@@ -92,8 +85,6 @@ class TeluguRealEstateAgent(Agent):
 
         self._session = session
         self._latency = latency
-        self._normalizer = normalizer
-        self._policy = policy
         self._context_builder = context_builder
         self._session_id = session_id
         self._agent_session = agent_session
@@ -121,84 +112,75 @@ class TeluguRealEstateAgent(Agent):
         except Exception as e:
             log.warning("agent.opt_out_disconnect_error", error=str(e))
 
+    @staticmethod
+    def _is_explicit_opt_out(text: str) -> bool:
+        """Minimal deterministic safeguard for clear stop/opt-out requests."""
+        lower = text.lower()
+        telugu_phrases = ("కాల్ చేయవద్దు", "మళ్ళీ కాల్ చేయకండి", "ఇకపై కాల్ చేయవద్దు")
+        english_phrases = ("stop calling", "do not call", "don't call", "unsubscribe", "remove me")
+        return any(token in lower for token in telugu_phrases + english_phrases)
+
     async def on_user_turn_completed(
         self,
         turn_ctx: lk_llm.ChatContext,
         new_message: lk_llm.ChatMessage,
     ) -> None:
         """
-        Called when caller finishes speaking, BEFORE LLM starts generating!
-        1. Checks for duplicate message events via verified event identifier with bounded memory
-        2. Advances Turn ID exactly once
-        3. Preserves raw transcript without modification and normalizes numbers (Lakhs, Crores, BHK)
-        4. Updates new_message with normalized text so LLM understands properly
-        5. Extracts facts (Budget, Location, BHK)
-        6. Injects current facts into system prompt for LLM context without swallowing errors
-        7. Enforces turn-version protection against stale responses
-        8. Selects response mode:
-           - PYTHON_DIRECT: speaks direct answer & stops normal LLM via StopResponse()
-           - LLM_GENERATE: lets Groq LLM answer customer queries naturally
+        Preserve the finalized transcript and let LiveKit route every normal
+        conversational turn directly to the configured LLM.
+        No input normalization, fact extraction, qualification routing, or
+        dynamic fact-context injection occurs here.
         """
         raw_text = new_message.text_content or ""
         if not raw_text.strip():
             return
 
-        # Phase 1: Reliable message ID duplicate detection (allows repeated sentences in different turns)
+        # Ignore duplicate delivery of the same finalized transcript event.
         msg_id = getattr(new_message, "id", None)
         if not msg_id:
-            # Deterministic content+time fallback replacing unstable object memory address id(new_message)
-            content_str = new_message.text_content or ""
-            msg_id = f"{getattr(new_message, 'created_at', 0.0)}_{hash(content_str)}"
+            msg_id = f"{getattr(new_message, 'created_at', 0.0)}_{hash(raw_text)}"
 
         if msg_id in self._processed_message_ids:
             log.warning("pipeline.duplicate_message_ignored", message_id=msg_id)
             return
         self._processed_message_ids.append(msg_id)
 
-        # Advance the session turn ID exactly once per confirmed turn
         current_turn_id = self._session.advance_turn()
         self._active_response_turn_id = current_turn_id
-        # Ensure latency tracker is tracking current_turn_id (capturing T0/T1 already recorded on pending turn)
         if self._latency.get_turn(current_turn_id) is None:
             self._latency.new_turn(current_turn_id)
         else:
             self._latency._current_turn_id = current_turn_id
 
-        log.info("pipeline.turn_start", turn_id=current_turn_id, text=raw_text, message_id=msg_id)
-
-        # 1. Clean and normalize (Telugu words, numbers, lakhs, crores)
-        # Preserve original raw transcript exactly as received
-        raw_transcript, normalized_transcript = self._normalizer.process(raw_text)
         now_ms = time.time() * 1000
         self._session.commit_turn(
-            raw_transcript=raw_transcript,
-            normalized_transcript=normalized_transcript,
+            raw_transcript=raw_text,
+            normalized_transcript=raw_text,
             timestamp_start_ms=now_ms - 1000,
             timestamp_end_ms=now_ms,
         )
 
-        # Update new_message content with normalized Telugu text
-        new_message.content = [normalized_transcript]
-
-        # 2. Extract facts (Location, Budget, BHK)
-        extraction = self._normalizer.extract(normalized_transcript)
-
-        # 3. Policy selector: Decide whether AI is needed or fixed answer
-        decision = self._policy.select(self._session, extraction)
-        self._latency.record(Stage.PYTHON_COMPLETE)
-
         log.info(
-            "pipeline.policy_decision",
-            mode=decision.mode.name,
-            stage=decision.next_stage,
+            "pipeline.turn_start",
             turn_id=current_turn_id,
+            text=raw_text,
+            message_id=msg_id,
         )
 
-        if decision.next_stage:
-            self._session.update_stage(decision.next_stage, self._session.next_missing_field)
+        # Explicit opt-out remains a deterministic safety/compliance exception.
+        # All ordinary conversation is delegated directly to the LLM.
+        if self._is_explicit_opt_out(raw_text):
+            farewell = "అర్థమైంది. మళ్ళీ మీకు కాల్ చేయము. ధన్యవాదాలు. నమస్కారం."
+            log.info("agent.session_ended_opt_out", session_id=self._session_id)
+            self._latency.log_turn_report(turn_id=current_turn_id)
+            farewell_handle = self._agent_session.say(farewell)
+            asyncio.create_task(self._handle_opt_out_farewell(farewell_handle))
+            raise StopResponse()
 
-        # Phase 1 Turn-version check: Discard response if turn advanced/invalidated while processing
-        if not self._session.is_turn_current(current_turn_id) or self._active_response_turn_id != current_turn_id:
+        if (
+            not self._session.is_turn_current(current_turn_id)
+            or self._active_response_turn_id != current_turn_id
+        ):
             log.warning(
                 "pipeline.stale_turn_discarded",
                 turn_id=current_turn_id,
@@ -211,39 +193,11 @@ class TeluguRealEstateAgent(Agent):
                 pass
             raise StopResponse()
 
-        # 4. Handle customer opt-out ("not interested" / "stop calling")
-        if self._session.facts.opted_out or decision.next_stage == "ended":
-            opt_out_reply = decision.direct_text or "ధన్యవాదాలు. నమస్కారం."
-            log.info("agent.session_ended_opt_out", session_id=self._session_id)
-            self._latency.log_turn_report(turn_id=current_turn_id)
-            farewell_handle = self._agent_session.say(opt_out_reply)
-            asyncio.create_task(self._handle_opt_out_farewell(farewell_handle))
-            raise StopResponse()
-
-        # 5. Handle Direct Response (qualification question - no AI delay)
-        if decision.mode == ResponseMode.PYTHON_DIRECT and decision.direct_text:
-            log.info("pipeline.direct_response", text_preview=decision.direct_text[:60], turn_id=current_turn_id)
-            self._latency.log_turn_report(turn_id=current_turn_id)
-            self._agent_session.say(decision.direct_text)
-            raise StopResponse()
-
-        # 6. LLM Conversational Mode:
-        # Keep the initial system prompt byte-for-byte stable for Groq prefix caching.
-        # Append changing validated facts after the existing conversation history.
-        stable_system_prompt = self._context_builder.build_system_prompt()
-        system_item_found = any(getattr(item, "role", None) == "system" for item in turn_ctx.items)
-        if not system_item_found:
-            turn_ctx.items.insert(0, lk_llm.ChatMessage(role="system", content=[stable_system_prompt]))
-
-        dynamic_context = self._context_builder.build_dynamic_context(self._session)
-        if dynamic_context:
-            turn_ctx.items.append(lk_llm.ChatMessage(role="system", content=[dynamic_context]))
-
         log.info(
             "pipeline.llm_response_delegated",
             turn_id=current_turn_id,
-            stable_prompt_chars=len(stable_system_prompt),
-            dynamic_context_chars=len(dynamic_context),
+            route="direct",
+            transcript_chars=len(raw_text),
         )
 
 
@@ -291,8 +245,6 @@ async def entrypoint(ctx: JobContext) -> None:
     latency = LatencyTracker(session_id=session_id)
     latency.new_turn(turn_id=0)
 
-    normalizer = Normalizer()
-    policy = PolicySelector()
     context_builder = ContextBuilder()
 
     # 3. Initialize Provider Plugins (LiveKit 1.x)
@@ -366,8 +318,6 @@ async def entrypoint(ctx: JobContext) -> None:
     agent = TeluguRealEstateAgent(
         session=session,
         latency=latency,
-        normalizer=normalizer,
-        policy=policy,
         context_builder=context_builder,
         session_id=session_id,
         agent_session=session_voice,

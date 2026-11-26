@@ -1,7 +1,7 @@
 # Telugu Voice Agent — Phase 1
 
 > LiveKit + Soniox STT + Groq GPT-OSS 20B + Cartesia TTS  
-> Real-estate lead qualification in Telugu
+> Natural Telugu real-estate conversation (direct LLM routing)
 
 ---
 
@@ -15,14 +15,13 @@ telugu-voice-agent/
 ├── assets/
 │   └── greeting.wav            ← Prerecorded Telugu greeting (16kHz mono 16-bit PCM)
 ├── core/
-│   ├── session.py              ← Session state: facts, turn_id, transcripts
+│   ├── session.py              ← Turn IDs and transcript history (legacy fact fields unused)
 │   ├── turn_detector.py        ← Soniox STT endpointing → turn gate
 │   ├── interruption.py         ← 9-step interruption recovery sequence
 │   └── playback.py             ← Audio playback with stale-chunk guard
 ├── pipeline/
-│   ├── normalizer.py           ← Two-buffer normalization + fact extraction
-│   ├── policy.py               ← Response policy (Python vs LLM decision)
-│   └── context.py              ← LLM context builder (rolling history + facts)
+│   └── context.py              ← Stable conversational system prompt
+│   # normalizer.py and policy.py are legacy modules; not used by the active agent
 ├── providers/
 │   ├── stt.py                  ← Soniox STT wrapper
 │   ├── llm.py                  ← Groq streaming LLM wrapper
@@ -82,7 +81,7 @@ ffmpeg -i your_greeting.mp3 -ar 16000 -ac 1 -sample_fmt s16 assets/greeting.wav
 pytest tests/ -v
 ```
 
-All 7 test checklist items from the master plan must pass before proceeding.
+The direct-LLM routing regression tests must pass before deployment.
 
 ### 6. Run the agent
 
@@ -97,8 +96,8 @@ python agent.py start
 Before moving to Phase 2, all of these must pass:
 
 - [ ] Short pause does NOT trigger premature response
-- [ ] Partial text does NOT commit a budget or fire an LLM call
-- [ ] Raw and normalized text are separately inspectable in logs
+- [ ] Partial transcripts do not trigger conversational responses
+- [ ] Each finalized ordinary customer turn reaches the LLM unchanged
 - [ ] A genuine caller interruption stops stale audible output
 - [ ] Noise/backchannel false interruption is logged (not acted upon)
 - [ ] Per-stage latency timestamps (T0–T6) collected in every call
@@ -111,14 +110,21 @@ Before moving to Phase 2, all of these must pass:
 | Rule | Enforced In |
 |---|---|
 | Partials never trigger pipeline | `turn_detector.py` |
-| Raw transcript is immutable | `normalizer.py` → `session.commit_turn()` |
+| Customer transcript is preserved unchanged | `agent.py` → `session.commit_turn()` |
 | Turn ID advances BEFORE pipeline starts | `turn_detector._emit_turn_complete()` |
 | Audio stops BEFORE LLM cancelled | `interruption.py` steps 3→4→5 |
 | WAV greeting uses NO LLM or TTS | `greeting.py` + `agent.py` |
 | Fillers are OFF until timing verified | `playback.play_filler()` (stubbed) |
-| All facts committed only after TURN_COMPLETE | `pipeline/policy.py` |
+| Ordinary finalized turns route directly to the LLM | `agent.py` |
 
 ---
+
+## Current conversation-routing scope
+
+- Every finalized ordinary customer turn is delegated directly to the configured LLM.
+- No Python fact extraction, normalization, qualification decision tree, or dynamic fact injection runs in the active turn path.
+- Explicit stop-calling requests remain a small deterministic compliance exception.
+- The legacy `pipeline/normalizer.py` and `pipeline/policy.py` files are not imported by the active agent. They are retained for now, not part of runtime behavior.
 
 ## What Is Deferred to Phase 2
 
