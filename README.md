@@ -1,6 +1,6 @@
 # Telugu Voice Agent — Phase 1
 
-> LiveKit + Soniox STT + Groq LLM + Cartesia TTS  
+> LiveKit + Soniox STT + Groq GPT-OSS 20B + Cartesia TTS  
 > Real-estate lead qualification in Telugu
 
 ---
