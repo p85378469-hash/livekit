@@ -96,7 +96,7 @@ class GroqLLM:
                 model=self.model,
                 messages=messages,
                 max_tokens=150,        # Keep answers short and sweet for phone calls
-                temperature=0.3,       # Low creativity for reliable Telugu facts
+                temperature=0.6,       # Groq GPT-OSS recommended sampling range
                 stream=True,
                 stream_options={"include_usage": True},
             )
