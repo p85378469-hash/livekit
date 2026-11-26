@@ -116,8 +116,8 @@ class TeluguRealEstateAgent(Agent):
     def _is_explicit_opt_out(text: str) -> bool:
         """Minimal deterministic safeguard for clear stop/opt-out requests."""
         lower = text.lower()
-        telugu_phrases = ("కాల్ చేయవద్దు", "మళ్ళీ కాల్ చేయకండి", "ఇకపై కాల్ చేయవద్దు", "నాకు ఆసక్తి లేదు")
-        english_phrases = ("stop calling", "do not call", "don't call", "unsubscribe", "remove me", "not interested")
+        telugu_phrases = ("కాల్ చేయవద్దు", "మళ్ళీ కాల్ చేయకండి", "ఇకపై కాల్ చేయవద్దు")
+        english_phrases = ("stop calling", "do not call", "don't call", "unsubscribe", "remove me")
         return any(token in lower for token in telugu_phrases + english_phrases)
 
     async def on_user_turn_completed(
