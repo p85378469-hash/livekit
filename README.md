@@ -15,7 +15,7 @@ telugu-voice-agent/
 ├── assets/
 │   └── greeting.wav            ← Prerecorded Telugu greeting (16kHz mono 16-bit PCM)
 ├── core/
-│   ├── session.py              ← Turn IDs and raw transcript tracking
+│   ├── session.py              ← Turn IDs and transcript history (legacy fact fields unused)
 │   ├── turn_detector.py        ← Soniox STT endpointing → turn gate
 │   ├── interruption.py         ← 9-step interruption recovery sequence
 │   └── playback.py             ← Audio playback with stale-chunk guard
@@ -96,8 +96,8 @@ python agent.py start
 Before moving to Phase 2, all of these must pass:
 
 - [ ] Short pause does NOT trigger premature response
-- [ ] Partial text does NOT commit a budget or fire an LLM call
-- [ ] Raw and normalized text are separately inspectable in logs
+- [ ] Partial transcripts do not trigger conversational responses
+- [ ] Each finalized ordinary customer turn reaches the LLM unchanged
 - [ ] A genuine caller interruption stops stale audible output
 - [ ] Noise/backchannel false interruption is logged (not acted upon)
 - [ ] Per-stage latency timestamps (T0–T6) collected in every call
