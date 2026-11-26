@@ -307,14 +307,14 @@ def test_validate_environment_checks(monkeypatch):
     with pytest.raises(ValueError, match="CARTESIA_API_KEY is required"):
         validate_environment()
 
-    # 3. Missing OpenRouter API key raises ValueError
+    # 3. Missing Groq API key raises ValueError
     monkeypatch.setenv("CARTESIA_API_KEY", "dummy_tts")
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
     with pytest.raises(ValueError, match="GROQ_API_KEY is required"):
         validate_environment()
 
     # 4. Valid Whisper environment passes
-    monkeypatch.setenv("OPENROUTER_API_KEY", "dummy_llm")
+    monkeypatch.setenv("GROQ_API_KEY", "dummy_llm")
     monkeypatch.setenv("CARTESIA_API_KEY", "dummy_tts")
     monkeypatch.setenv("STT_PROVIDER", "whisper")
     validate_environment()  # Should not raise
