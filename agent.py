@@ -15,6 +15,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import asyncio
 from collections import deque
 import logging
