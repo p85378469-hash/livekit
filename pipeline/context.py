@@ -2,7 +2,7 @@
 # pipeline/context.py — AI Prompt & Conversation History Builder
 #
 # IN SIMPLE WORDS:
-# Whenever we need to ask the AI (OpenRouter or Groq) to speak to the caller,
+# Whenever we need to ask the AI (Groq) to speak to the caller,
 # the AI needs to know:
 # 1. Who it is: A friendly Telugu real estate agent.
 # 2. What it knows so far: "Customer already told us they want Vijayawada for ₹50 Lakhs".
@@ -54,7 +54,7 @@ Rules:
 class ContextBuilder:
     """
     Constructs the list of messages in OpenAI format (role: system / role: user)
-    so OpenRouter / Groq knows the exact context before generating a response.
+    so Groq knows the exact context before generating a response.
     """
 
     def build_system_prompt(self, session: Optional[ConversationSession] = None) -> str:
@@ -71,17 +71,23 @@ class ContextBuilder:
         
         session: The active call notepad containing facts and recent turns.
         """
-        # Message 1: System prompt with personality, rules, and current facts
+        # Stable system instructions must remain byte-for-byte identical across turns.
         messages: list[dict[str, str]] = [
-            {"role": "system", "content": self._build_system_with_facts(session)},
+            {"role": "system", "content": SYSTEM_PROMPT},
         ]
 
-        # Messages 2+: What the caller said in recent turns
+        # Preserve prior turns as an append-only prefix.
         for turn in session.recent_turns:
             messages.append({
                 "role": "user",
                 "content": turn.normalized_transcript,
             })
+
+        # Changing state comes after the stable instructions and conversation history.
+        messages.append({
+            "role": "system",
+            "content": self.build_dynamic_context(session),
+        })
 
         log.debug(
             "context.built",
