@@ -15,14 +15,13 @@ telugu-voice-agent/
 ├── assets/
 │   └── greeting.wav            ← Prerecorded Telugu greeting (16kHz mono 16-bit PCM)
 ├── core/
-│   ├── session.py              ← Session state: facts, turn_id, transcripts
+│   ├── session.py              ← Turn IDs and raw transcript tracking
 │   ├── turn_detector.py        ← Soniox STT endpointing → turn gate
 │   ├── interruption.py         ← 9-step interruption recovery sequence
 │   └── playback.py             ← Audio playback with stale-chunk guard
 ├── pipeline/
-│   ├── normalizer.py           ← Two-buffer normalization + fact extraction
-│   ├── policy.py               ← Response policy (Python vs LLM decision)
-│   └── context.py              ← LLM context builder (rolling history + facts)
+│   └── context.py              ← Stable conversational system prompt
+│   # normalizer.py and policy.py are legacy modules; not used by the active agent
 ├── providers/
 │   ├── stt.py                  ← Soniox STT wrapper
 │   ├── llm.py                  ← Groq streaming LLM wrapper
@@ -120,7 +119,14 @@ Before moving to Phase 2, all of these must pass:
 
 ---
 
-## Current conversation-routing scope\n\n- Every finalized ordinary customer turn is delegated directly to the configured LLM.\n- No Python fact extraction, normalization, qualification decision tree, or dynamic fact injection runs in the active turn path.\n- Explicit stop-calling requests remain a small deterministic compliance exception.\n- The legacy `pipeline/normalizer.py` and `pipeline/policy.py` files are not imported by the active agent. They are retained for now, not part of runtime behavior.\n\n## What Is Deferred to Phase 2
+## Current conversation-routing scope
+
+- Every finalized ordinary customer turn is delegated directly to the configured LLM.
+- No Python fact extraction, normalization, qualification decision tree, or dynamic fact injection runs in the active turn path.
+- Explicit stop-calling requests remain a small deterministic compliance exception.
+- The legacy `pipeline/normalizer.py` and `pipeline/policy.py` files are not imported by the active agent. They are retained for now, not part of runtime behavior.
+
+## What Is Deferred to Phase 2
 
 - Telugu-aware pause classification (advanced turn tuning)
 - Backchannel/noise/filler ML classifier
