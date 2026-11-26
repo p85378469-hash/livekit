@@ -28,7 +28,7 @@ log = structlog.get_logger(__name__)
 
 # Default model used for OpenRouter (Llama 3.1 70B has great multilingual and Telugu abilities)
 DEFAULT_OPENROUTER_MODEL = "meta-llama/llama-3.1-70b-instruct"
-DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b"
+DEFAULT_GROQ_MODEL = "llama-3.1-70b-versatile"
 
 
 class GroqLLM:
@@ -42,22 +42,11 @@ class GroqLLM:
         """
         self._latency = latency
 
-        provider_choice = os.environ.get("LLM_PROVIDER", "groq").strip().lower()
         openrouter_key = os.environ.get("OPENROUTER_API_KEY")
         groq_key = os.environ.get("GROQ_API_KEY")
 
-        if provider_choice == "groq":
-            if not groq_key:
-                raise EnvironmentError("GROQ_API_KEY is required when LLM_PROVIDER=groq")
-            self.provider = "groq"
-            self.model = os.environ.get("GROQ_MODEL", DEFAULT_GROQ_MODEL)
-            self._client = AsyncOpenAI(
-                api_key=groq_key,
-                base_url="https://api.groq.com/openai/v1",
-            )
-        elif provider_choice == "openrouter":
-            if not openrouter_key:
-                raise EnvironmentError("OPENROUTER_API_KEY is required when LLM_PROVIDER=openrouter")
+        if openrouter_key:
+            # Use OpenRouter endpoint
             self.provider = "openrouter"
             self.model = os.environ.get("OPENROUTER_MODEL", DEFAULT_OPENROUTER_MODEL)
             self._client = AsyncOpenAI(
@@ -68,8 +57,16 @@ class GroqLLM:
                     "X-Title": "Telugu Voice Agent",
                 },
             )
+        elif groq_key:
+            # Fallback to Groq if user uses Groq
+            self.provider = "groq"
+            self.model = os.environ.get("GROQ_MODEL", DEFAULT_GROQ_MODEL)
+            self._client = AsyncOpenAI(
+                api_key=groq_key,
+                base_url="https://api.groq.com/openai/v1",
+            )
         else:
-            raise ValueError("LLM_PROVIDER must be 'groq' or 'openrouter'")
+            raise EnvironmentError("Neither OPENROUTER_API_KEY nor GROQ_API_KEY is set in environment")
 
         log.info("llm.initialized", provider=self.provider, model=self.model)
 
@@ -96,28 +93,11 @@ class GroqLLM:
                 model=self.model,
                 messages=messages,
                 max_tokens=150,        # Keep answers short and sweet for phone calls
-                temperature=0.6,       # Groq GPT-OSS recommended sampling range
+                temperature=0.3,       # Low creativity for reliable Telugu facts
                 stream=True,
-                stream_options={"include_usage": True},
             )
 
             async for chunk in stream:
-                usage = getattr(chunk, "usage", None)
-                if usage is not None:
-                    prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
-                    details = getattr(usage, "prompt_tokens_details", None)
-                    cached_tokens = getattr(details, "cached_tokens", 0) or 0
-                    log.info(
-                        "llm.prompt_cache_usage",
-                        prompt_tokens=prompt_tokens,
-                        cached_tokens=cached_tokens,
-                        cache_hit_rate=round(cached_tokens / prompt_tokens, 4) if prompt_tokens else 0.0,
-                        completion_tokens=getattr(usage, "completion_tokens", 0),
-                        total_time=getattr(usage, "total_time", None),
-                        prompt_time=getattr(usage, "prompt_time", None),
-                        completion_time=getattr(usage, "completion_time", None),
-                    )
-
                 # Safety check: If user started talking, abort AI generation immediately!
                 if not is_turn_current_fn():
                     log.warning(
