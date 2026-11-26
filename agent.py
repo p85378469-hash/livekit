@@ -11,9 +11,9 @@
 #    - Advances session turn ID
 #    - Preserves exact raw Telugu transcript
 #    - Normalizes numbers (Lakhs, Crores, BHK)
-#    - Updates new_message content so OpenRouter receives normalized text
+#    - Updates new_message content so Groq receives normalized text
 #    - Injects collected real-estate facts into system instructions
-#    - Distinguishes customer questions (OpenRouter LLM) vs simple qualification (StopResponse)
+#    - Distinguishes customer questions (Groq LLM) vs simple qualification (StopResponse)
 # 4. Speaks replies in realistic Telugu using Cartesia TTS (Sonic 3.5).
 # ==============================================================================
 
@@ -74,7 +74,7 @@ class TeluguRealEstateAgent(Agent):
     """
     LiveKit 1.x Voice Agent subclass.
     Overrides `on_user_turn_completed` to run Telugu normalization, turn-tracking,
-    and policy selection BEFORE OpenRouter LLM responds!
+    and policy selection BEFORE Groq LLM responds!
     """
 
     def __init__(
@@ -137,7 +137,7 @@ class TeluguRealEstateAgent(Agent):
         7. Enforces turn-version protection against stale responses
         8. Selects response mode:
            - PYTHON_DIRECT: speaks direct answer & stops normal LLM via StopResponse()
-           - LLM_GENERATE: lets OpenRouter LLM answer customer queries naturally
+           - LLM_GENERATE: lets Groq LLM answer customer queries naturally
         """
         raw_text = new_message.text_content or ""
         if not raw_text.strip():
