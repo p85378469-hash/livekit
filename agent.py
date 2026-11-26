@@ -228,25 +228,23 @@ class TeluguRealEstateAgent(Agent):
             raise StopResponse()
 
         # 6. LLM Conversational Mode:
-        # Caller asked a genuine question or discussion!
-        # Update system instructions with up-to-date collected facts so LLM is fully informed.
-        updated_system_prompt = self._context_builder.build_system_prompt(self._session)
-        try:
-            # Verified LiveKit Agent async method
-            await self.update_instructions(updated_system_prompt)
-            system_item_found = False
-            for item in turn_ctx.items:
-                if getattr(item, "role", None) == "system":
-                    item.content = [updated_system_prompt]
-                    system_item_found = True
-                    break
-            if not system_item_found:
-                turn_ctx.items.insert(0, lk_llm.ChatMessage(role="system", content=[updated_system_prompt]))
-        except Exception as e:
-            log.error("context.instructions_update_error", error=str(e), exc_info=True)
-            raise
+        # Keep the initial system prompt byte-for-byte stable for Groq prefix caching.
+        # Append changing validated facts after the existing conversation history.
+        stable_system_prompt = self._context_builder.build_system_prompt()
+        system_item_found = any(getattr(item, "role", None) == "system" for item in turn_ctx.items)
+        if not system_item_found:
+            turn_ctx.items.insert(0, lk_llm.ChatMessage(role="system", content=[stable_system_prompt]))
 
-        log.info("pipeline.llm_response_delegated", turn_id=current_turn_id)
+        dynamic_context = self._context_builder.build_dynamic_context(self._session)
+        if dynamic_context:
+            turn_ctx.items.append(lk_llm.ChatMessage(role="system", content=[dynamic_context]))
+
+        log.info(
+            "pipeline.llm_response_delegated",
+            turn_id=current_turn_id,
+            stable_prompt_chars=len(stable_system_prompt),
+            dynamic_context_chars=len(dynamic_context),
+        )
 
 
 def validate_environment() -> None:
@@ -256,18 +254,18 @@ def validate_environment() -> None:
         raise ValueError(f"Invalid STT_PROVIDER='{stt_provider_choice}'. Allowed values are 'soniox' or 'whisper'.")
 
     soniox_key = os.environ.get("SONIOX_API_KEY", "").strip()
-    openrouter_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    groq_key = os.environ.get("GROQ_API_KEY", "").strip()
     cartesia_key = os.environ.get("CARTESIA_API_KEY", "").strip()
 
     if not cartesia_key:
         raise ValueError("CARTESIA_API_KEY is required for voice synthesis.")
 
-    if not openrouter_key:
-        raise ValueError("OPENROUTER_API_KEY is required for the LLM.")
+    if not groq_key:
+        raise ValueError("GROQ_API_KEY is required for the LLM.")
 
     if stt_provider_choice == "whisper":
-        if not openrouter_key:
-            raise ValueError("OPENROUTER_API_KEY is required when STT_PROVIDER=whisper is configured.")
+        if not groq_key:
+            raise ValueError("GROQ_API_KEY is required when STT_PROVIDER=whisper is configured.")
     else:
         # Default or explicit 'soniox' requires SONIOX_API_KEY (no silent fallback to Whisper)
         if not soniox_key:
@@ -310,10 +308,10 @@ async def entrypoint(ctx: JobContext) -> None:
             reason="STT_PROVIDER=whisper explicitly requested",
         )
         stt_provider = openai.STT(
-            model="openai/whisper-large-v3",
+            model="whisper-large-v3",
             language="te",
-            api_key=os.environ.get("OPENROUTER_API_KEY"),
-            base_url="https://openrouter.ai/api/v1",
+            api_key=os.environ.get("GROQ_API_KEY"),
+            base_url="https://api.groq.com/openai/v1",
         )
     elif soniox_key:
         soniox_base_url = os.environ.get("SONIOX_BASE_URL", "wss://stt-rt.in.soniox.com/transcribe-websocket")
@@ -330,11 +328,13 @@ async def entrypoint(ctx: JobContext) -> None:
     else:
         raise ValueError("No valid STT provider configured. Set SONIOX_API_KEY or explicit STT_PROVIDER=whisper.")
 
-    # LLM: OpenRouter via LiveKit OpenAI plugin
-    llm_provider = openai.LLM.with_openrouter(
-        model=os.environ.get("OPENROUTER_MODEL", "meta-llama/llama-3.1-70b-instruct"),
-        api_key=os.environ.get("OPENROUTER_API_KEY"),
-        temperature=0.3,
+    # LLM: Groq GPT-OSS 20B via the pinned LiveKit OpenAI-compatible plugin.
+    # Groq prompt caching is automatic; keep the stable system prompt unchanged.
+    llm_provider = openai.LLM.with_groq(
+        model=os.environ.get("GROQ_MODEL", "openai/gpt-oss-20b"),
+        api_key=os.environ.get("GROQ_API_KEY"),
+        temperature=float(os.environ.get("GROQ_TEMPERATURE", "0.6")),
+        max_tokens=int(os.environ.get("GROQ_MAX_COMPLETION_TOKENS", "256")),
     )
 
     # TTS: Cartesia Sonic 3.5 Telugu voice
