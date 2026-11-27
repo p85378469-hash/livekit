@@ -118,7 +118,17 @@ class ContextBuilder:
             lines.extend(f"- {field}" for field in missing)
         lines.append(f"Current qualification stage: {ctx['stage']}")
         if ctx["next_missing_field"]:
-            lines.append(f"Next missing field: {ctx['next_missing_field']}")
+            lines.append(f"Next missing field to collect: {ctx['next_missing_field']}")
+            lines.append(
+                "Instruction: Respond warmly and conversationally in Telugu (maximum 1-2 sentences). "
+                "Acknowledge the caller's last statement, and naturally ask about the next missing field. "
+                "Do NOT repeat the exact same wording as your previous question; if the caller did not answer clearly, rephrase gently or give brief examples."
+            )
+        else:
+            lines.append(
+                "Instruction: All qualification information is collected! "
+                "Thank the caller warmly in Telugu (1 short sentence) and inform them our agent will contact them soon."
+            )
         return "\n".join(lines)
 
     def _build_system_with_facts(self, session: ConversationSession) -> str:

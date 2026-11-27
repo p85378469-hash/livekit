@@ -29,3 +29,6 @@ scratch/
 *.zip
 .DS_Store
 Thumbs.db
+
+# Call logs storage
+call_logs/

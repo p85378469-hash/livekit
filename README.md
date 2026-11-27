@@ -87,7 +87,39 @@ All 7 test checklist items from the master plan must pass before proceeding.
 ### 6. Run the agent
 
 ```bash
+# Development mode (connects to LiveKit Sandbox/Playground for live voice testing):
+python agent.py dev
+
+# Production worker mode:
 python agent.py start
+```
+
+### 7. Test Offline Simulation (No call or mic needed)
+
+```bash
+# Automated 3-turn qualification test in Telugu:
+python scripts/test_call_simulation.py
+
+# Interactive terminal conversation (type Telugu/English):
+python scripts/test_call_simulation.py --interactive
+```
+
+### 8. View & Export Call Logs
+
+All calls (live and simulated) are permanently stored in the `call_logs/` folder in structured JSON, readable TXT transcript, and JSONL master index.
+
+```bash
+# Display summary table of all recorded calls:
+python scripts/view_call_logs.py
+
+# View full dialogue transcript of the most recent call:
+python scripts/view_call_logs.py --latest
+
+# View a specific call by Session ID:
+python scripts/view_call_logs.py --id <SESSION_ID>
+
+# Export all call metrics to CSV for Excel:
+python scripts/view_call_logs.py --export-csv
 ```
 
 ---
